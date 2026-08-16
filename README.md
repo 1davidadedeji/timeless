@@ -13,7 +13,15 @@ Spec: [`docs/superpowers/specs/2026-08-15-timeless-design.md`](docs/superpowers/
 | ActivityWatch | `/Applications/ActivityWatch.app` + login item, API `:5600` |
 | AW → Timeless ingest | LaunchAgent `com.timeless.aw-ingest` every 2 minutes |
 | Ollama | `brew services` + model `qwen2.5:7b` |
+| Screenpipe (personal binary) | LaunchAgent `com.timeless.screenpipe` — screen OCR, no mic |
+| Screenpipe → Timeless | LaunchAgent `com.timeless.sp-ingest` every 3 minutes |
 | Android APK | `~/Library/Application Support/Timeless/installers/aw-android.apk` |
+
+Phone install when USB is connected:
+
+```bash
+./scripts/install-phone.sh
+```
 
 Reinstall login services after a pull:
 
@@ -25,18 +33,14 @@ Reinstall login services after a pull:
 
 1. **ActivityWatch** → System Settings → Privacy & Security → **Accessibility** (and Screen Recording if asked). Without this, window titles stay empty.
 2. Chrome extension [ActivityWatch Web Watcher](https://chromewebstore.google.com/detail/activitywatch-web-watcher) so job URLs reach Timeless.
-3. Samsung: enable **Install unknown apps**, sideload `aw-android.apk`, grant Usage Access, disable battery optimization. USB was not plugged in during setup, so the phone app is not installed yet.
+3. **Now (USB):** Developer options + USB debugging on the Samsung, plug into this Mac, allow the RSA prompt, then run `./scripts/install-phone.sh`. Then Usage Access ON and battery optimization OFF for ActivityWatch.
 4. Overlay: first launch may ask to allow network / Accessibility. Keep it.
 
 ## Screenpipe (pixels on the Mac)
 
-Do **not** buy the signed app. Personal build:
+Personal build is already at `~/Library/Application Support/Timeless/bin/screenpipe` (not the paid app). `install-launchd.sh` starts `screenpipe record --disable-audio`. Approve Screen Recording if macOS asks again.
 
-```bash
-./scripts/build-screenpipe.sh
-```
-
-Needs Homebrew `rust`. First compile is long. Then point it at Ollama; Timeless will grow an ingest adapter next.
+Rebuild later with `./scripts/build-screenpipe.sh`.
 
 ## Mail / Tailscale / calendar
 
