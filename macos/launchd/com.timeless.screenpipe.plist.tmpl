@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.timeless.screenpipe</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>SUPPORT/bin/screenpipe</string>
+    <string>record</string>
+    <string>--disable-audio</string>
+    <string>--port</string>
+    <string>3030</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>HOME/Library/Application Support/Timeless/logs/screenpipe.log</string>
+  <key>StandardErrorPath</key>
+  <string>HOME/Library/Application Support/Timeless/logs/screenpipe.err</string>
+</dict>
+</plist>
