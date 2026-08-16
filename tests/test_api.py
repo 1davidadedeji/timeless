@@ -65,3 +65,27 @@ def test_heartbeat_api(tmp_path):
     assert r.status_code == 200
     sensors = [h["sensor"] for h in c.get("/api/today").json()["heartbeats"]]
     assert "mac_aw" in sensors
+
+
+def test_do_open_does_not_send(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "timeless.app.run_hands",
+        lambda intent: {"did": "open_url", "url": intent["url"], "target": intent["target"]},
+    )
+    c = client(tmp_path)
+    r = c.post("/api/do", json={"message": "open leetcode"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["did"]["url"] == "https://leetcode.com"
+    assert "Opened leetcode" in body["reply"]
+
+
+def test_chat_queues_send_instead_of_sending(tmp_path):
+    c = client(tmp_path)
+    r = c.post("/api/chat", json={"message": "send a text to mom"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["did"] is None
+    assert "will not send" in body["reply"].lower()
+    kinds = [a["kind"] for a in c.get("/api/today").json()["approvals"]]
+    assert "do_send" in kinds

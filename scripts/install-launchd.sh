@@ -29,15 +29,16 @@ render "$ROOT/macos/launchd/com.timeless.overlay.plist.tmpl" "$DEST/com.timeless
 render "$ROOT/macos/launchd/com.timeless.aw-ingest.plist.tmpl" "$DEST/com.timeless.aw-ingest.plist"
 render "$ROOT/macos/launchd/com.timeless.screenpipe.plist.tmpl" "$DEST/com.timeless.screenpipe.plist"
 render "$ROOT/macos/launchd/com.timeless.sp-ingest.plist.tmpl" "$DEST/com.timeless.sp-ingest.plist"
+render "$ROOT/macos/launchd/com.timeless.phone-aw.plist.tmpl" "$DEST/com.timeless.phone-aw.plist"
 
-for label in com.timeless.brain com.timeless.overlay com.timeless.aw-ingest com.timeless.screenpipe com.timeless.sp-ingest; do
+for label in com.timeless.brain com.timeless.overlay com.timeless.aw-ingest com.timeless.screenpipe com.timeless.sp-ingest com.timeless.phone-aw; do
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
 done
 pkill -f TimelessOverlay 2>/dev/null || true
 pkill -f '/Timeless/venv/bin/timeless' 2>/dev/null || true
 sleep 1
 
-for label in com.timeless.brain com.timeless.overlay com.timeless.aw-ingest com.timeless.screenpipe com.timeless.sp-ingest; do
+for label in com.timeless.brain com.timeless.overlay com.timeless.aw-ingest com.timeless.screenpipe com.timeless.sp-ingest com.timeless.phone-aw; do
   launchctl bootstrap "gui/$(id -u)" "$DEST/${label}.plist"
   launchctl enable "gui/$(id -u)/$label"
   launchctl kickstart -k "gui/$(id -u)/$label"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import httpx
@@ -10,6 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from timeless.hands import parse, run as run_hands
 from timeless.store import Store
 
 WEB = Path(__file__).resolve().parents[2] / "web"
@@ -175,8 +177,18 @@ def create_app(db_path: str | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.post("/api/do")
+    def do_command(body: ChatIn):
+        out = _maybe_do(store, body.message)
+        if not out:
+            raise HTTPException(400, "not an action I can run yet")
+        return out
+
     @app.post("/api/chat")
     def chat(body: ChatIn):
+        acted = _maybe_do(store, body.message)
+        if acted:
+            return {**acted, "offline": False}
         snapshot = today()
         ollama = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
         model = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
@@ -192,7 +204,8 @@ def create_app(db_path: str | None = None) -> FastAPI:
         )[:8000]
         prompt = (
             "You are Timeless, a local personal assistant. Answer from this JSON snapshot. "
-            "If you lack data, say so. Be direct.\n"
+            "If the user asks you to open a site or app, say they can type: open leetcode "
+            "or open coursera on my phone. You cannot send messages yourself.\n"
             f"{context}\nUser: {body.message}"
         )
         try:
@@ -225,6 +238,31 @@ def create_app(db_path: str | None = None) -> FastAPI:
         app.mount("/static", StaticFiles(directory=WEB), name="static")
 
     return app
+
+
+def _maybe_do(store: Store, message: str) -> dict | None:
+    halt = store.active_halt()
+    if halt and re.search(r"\bjoin\b", message, re.I) and halt.get("join_url"):
+        intent = {"action": "open_url", "target": "mac", "url": halt["join_url"], "label": halt["title"], "risky": False}
+        did = run_hands(intent)
+        store.ack_meeting(halt["id"], "join")
+        return {"reply": f"Joining {halt['title']}.", "did": did}
+    intent = parse(message, store.list_rituals())
+    if not intent:
+        return None
+    if intent.get("risky"):
+        approval = store.propose("do_send", intent)
+        return {
+            "reply": f"I will not send or submit until you accept approval #{approval['id']}.",
+            "did": None,
+            "approval": approval,
+        }
+    try:
+        did = run_hands(intent)
+    except Exception as exc:
+        return {"reply": f"Could not do that: {exc}", "did": None}
+    where = intent.get("target") or "mac"
+    return {"reply": f"Opened {intent.get('label')} on {where}.", "did": did}
 
 
 def _offline_chat(message: str, snapshot: dict) -> str:

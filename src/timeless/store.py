@@ -276,6 +276,9 @@ class Store:
                 launch_url=payload.get("launch_url"),
                 match_host=payload.get("match_host"),
             )
+        elif kind == "do_send":
+            # Accepting still does not send or submit; the hands layer is not built.
+            return
 
     def ingest_url(self, url: str, title: str | None = None) -> dict[str, Any]:
         self.add_event("url", title or url, {"url": url, "title": title})

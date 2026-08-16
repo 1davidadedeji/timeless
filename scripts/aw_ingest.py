@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Forward ActivityWatch web/window URLs into Timeless."""
+"""Forward ActivityWatch web/window events into Timeless (Mac or phone)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 AW = os.environ.get("AW_URL", "http://127.0.0.1:5600")
 TIMLESS = os.environ.get("TIMELESS_URL", "http://127.0.0.1:8787")
+SENSOR = os.environ.get("AW_SENSOR", "mac_aw")
 
 
 def get(url: str):
@@ -35,34 +36,48 @@ def events_for(bucket: str, start: datetime) -> list:
 
 
 def main() -> None:
-    since = datetime.now(timezone.utc) - timedelta(minutes=20)
+    since = datetime.now(timezone.utc) - timedelta(minutes=30)
     try:
         bmap = get(f"{AW}/api/0/buckets")
     except Exception as exc:
         print(f"activitywatch unreachable: {exc}")
         return
-    post(f"{TIMLESS}/api/heartbeat", {"sensor": "mac_aw", "detail": f"{len(bmap)} buckets"})
-    forwarded = 0
+    post(f"{TIMLESS}/api/heartbeat", {"sensor": SENSOR, "detail": f"{len(bmap)} buckets"})
+    urls = 0
+    apps = 0
     for bid, meta in bmap.items():
         btype = str((meta or {}).get("type") or "")
         name = bid.lower() + " " + btype.lower()
-        if "android" in name:
-            post(f"{TIMLESS}/api/heartbeat", {"sensor": "phone_aw", "detail": bid})
+        if "unlock" in name:
             continue
-        if not any(k in name for k in ("web", "window", "currentwindow", "browser")):
+        interesting = any(k in name for k in ("web", "window", "currentwindow", "browser", "android", "chrome"))
+        if not interesting:
             continue
         for ev in events_for(bid, since):
             data = ev.get("data") or {}
             url = data.get("url") or ""
             title = data.get("title") or data.get("app") or ""
-            if not url:
-                continue
-            try:
-                post(f"{TIMLESS}/api/ingest/url", {"url": url, "title": title})
-                forwarded += 1
-            except Exception as exc:
-                print(f"ingest failed: {exc}")
-    print(f"forwarded {forwarded} url events")
+            package = data.get("package") or data.get("app") or ""
+            if url:
+                try:
+                    post(f"{TIMLESS}/api/ingest/url", {"url": url, "title": title or url})
+                    urls += 1
+                except Exception as exc:
+                    print(f"url ingest failed: {exc}")
+                    return
+            elif package or title:
+                try:
+                    post(
+                        f"{TIMLESS}/api/ingest/phone" if SENSOR.startswith("phone") or "android" in name else f"{TIMLESS}/api/heartbeat",
+                        {"summary": f"{title} {package}".strip(), "payload": data}
+                        if SENSOR.startswith("phone") or "android" in name
+                        else {"sensor": SENSOR, "detail": title},
+                    )
+                    apps += 1
+                except Exception as exc:
+                    print(f"app ingest failed: {exc}")
+                    return
+    print(f"forwarded {urls} urls, {apps} app events from {SENSOR}")
 
 
 if __name__ == "__main__":
