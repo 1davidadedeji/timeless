@@ -27,23 +27,21 @@ render() {
 render "$ROOT/macos/launchd/com.timeless.brain.plist.tmpl" "$DEST/com.timeless.brain.plist"
 render "$ROOT/macos/launchd/com.timeless.overlay.plist.tmpl" "$DEST/com.timeless.overlay.plist"
 render "$ROOT/macos/launchd/com.timeless.aw-ingest.plist.tmpl" "$DEST/com.timeless.aw-ingest.plist"
+render "$ROOT/macos/launchd/com.timeless.screenpipe.plist.tmpl" "$DEST/com.timeless.screenpipe.plist"
+render "$ROOT/macos/launchd/com.timeless.sp-ingest.plist.tmpl" "$DEST/com.timeless.sp-ingest.plist"
 
-launchctl bootout "gui/$(id -u)/com.timeless.brain" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.timeless.overlay" 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.timeless.aw-ingest" 2>/dev/null || true
+for label in com.timeless.brain com.timeless.overlay com.timeless.aw-ingest com.timeless.screenpipe com.timeless.sp-ingest; do
+  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+done
 pkill -f TimelessOverlay 2>/dev/null || true
 pkill -f '/Timeless/venv/bin/timeless' 2>/dev/null || true
 sleep 1
 
-launchctl bootstrap "gui/$(id -u)" "$DEST/com.timeless.brain.plist"
-launchctl bootstrap "gui/$(id -u)" "$DEST/com.timeless.overlay.plist"
-launchctl bootstrap "gui/$(id -u)" "$DEST/com.timeless.aw-ingest.plist"
-launchctl enable "gui/$(id -u)/com.timeless.brain"
-launchctl enable "gui/$(id -u)/com.timeless.overlay"
-launchctl enable "gui/$(id -u)/com.timeless.aw-ingest"
-launchctl kickstart -k "gui/$(id -u)/com.timeless.brain"
-launchctl kickstart -k "gui/$(id -u)/com.timeless.overlay"
-launchctl kickstart -k "gui/$(id -u)/com.timeless.aw-ingest"
+for label in com.timeless.brain com.timeless.overlay com.timeless.aw-ingest com.timeless.screenpipe com.timeless.sp-ingest; do
+  launchctl bootstrap "gui/$(id -u)" "$DEST/${label}.plist"
+  launchctl enable "gui/$(id -u)/$label"
+  launchctl kickstart -k "gui/$(id -u)/$label"
+done
 
 osascript -e 'tell application "System Events" to make login item at end with properties {path:"/Applications/ActivityWatch.app", hidden:false}' >/dev/null 2>&1 || true
 
