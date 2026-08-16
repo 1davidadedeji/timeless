@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Timeless — daily gate</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="overlay">
+    <div class="panel card">
+      <h1>Set today before you proceed</h1>
+      <p class="sub">Timeless will not unlock until there is a real plan.</p>
+      <label>Outcomes</label>
+      <textarea id="outcomes" placeholder="What done means today"></textarea>
+      <label>Timeline (one block per line: start-end task)</label>
+      <textarea id="timeline" placeholder="09:00-10:00 LeetCode&#10;10:00-12:00 Coursera ML&#10;14:00-16:00 Applications"></textarea>
+      <div class="row">
+        <button type="button" id="lock">Lock plan</button>
+      </div>
+      <p class="miss" id="err"></p>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+  <script>
+    el("lock").onclick = async () => {
+      el("err").textContent = "";
+      const outcomes = el("outcomes").value;
+      const timeline = el("timeline").value.split("\n").map((line) => {
+        const m = line.trim().match(/^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s+(.*)$/) || line.trim().match(/^(\S+)\s+(\S+)\s+(.+)$/);
+        if (m && m[3]) return { start: m[1], end: m[2], task: m[3] };
+        if (line.trim()) return { task: line.trim() };
+        return null;
+      }).filter(Boolean);
+      try {
+        await api("/api/plan", { method: "POST", body: JSON.stringify({ outcomes, timeline }) });
+        location.href = "/";
+      } catch (e) {
+        el("err").textContent = e.message;
+      }
+    };
+  </script>
+</body>
+</html>

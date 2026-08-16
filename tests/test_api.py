@@ -1,0 +1,59 @@
+from fastapi.testclient import TestClient
+
+from timeless.app import create_app
+
+
+def client(tmp_path):
+    app = create_app(str(tmp_path / "api.db"))
+    return TestClient(app)
+
+
+def test_today_needs_gate(tmp_path):
+    c = client(tmp_path)
+    r = c.get("/api/today")
+    assert r.status_code == 200
+    assert r.json()["needs_gate"] is True
+    assert r.json()["brain"] == "online"
+
+
+def test_plan_and_gate(tmp_path):
+    c = client(tmp_path)
+    bad = c.post("/api/plan", json={"outcomes": "", "timeline": [{"task": "x"}]})
+    assert bad.status_code in (400, 422)
+    ok = c.post(
+        "/api/plan",
+        json={
+            "outcomes": "Ship Timeless brain",
+            "timeline": [
+                {"start": "21:00", "end": "22:00", "task": "LeetCode", "ritual": "leetcode"}
+            ],
+        },
+    )
+    assert ok.status_code == 200
+    assert c.get("/api/today").json()["needs_gate"] is False
+
+
+def test_chat_offline_does_not_500(tmp_path):
+    c = client(tmp_path)
+    c.post("/api/plan", json={"outcomes": "work", "timeline": [{"task": "code", "start": "9", "end": "10"}]})
+    r = c.post("/api/chat", json={"message": "what did I do"})
+    assert r.status_code == 200
+    assert "offline" in r.json()
+
+
+def test_meeting_ack_api(tmp_path):
+    c = client(tmp_path)
+    m = c.post(
+        "/api/meetings",
+        json={
+            "uid": "m1",
+            "title": "Interview",
+            "start_at": "2020-01-01T00:00:00Z",
+            "end_at": "2099-01-01T00:00:00Z",
+            "join_url": "https://meet.google.com/abc",
+        },
+    ).json()
+    halt = c.get("/api/today").json()["halt"]
+    assert halt["id"] == m["id"]
+    c.post(f"/api/meetings/{m['id']}/ack", json={"action": "im_in"})
+    assert c.get("/api/today").json()["halt"] is None

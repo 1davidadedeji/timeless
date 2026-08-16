@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Timeless</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h1>Timeless</h1>
+    <p class="sub" id="status">Loading…</p>
+    <div class="grid">
+      <section class="card">
+        <h2>Today</h2>
+        <div id="plan"></div>
+      </section>
+      <section class="card">
+        <h2>Approvals</h2>
+        <div id="approvals"></div>
+      </section>
+      <section class="card">
+        <h2>Opportunities</h2>
+        <div id="opps"></div>
+      </section>
+      <section class="card">
+        <h2>Mail</h2>
+        <div id="mail"></div>
+      </section>
+      <section class="card">
+        <h2>Rituals</h2>
+        <div id="rituals"></div>
+      </section>
+      <section class="card">
+        <h2>Sensors</h2>
+        <div id="heart"></div>
+      </section>
+    </div>
+    <section class="card" style="margin-top:1rem">
+      <h2>Chat</h2>
+      <div class="chat">
+        <div id="log"></div>
+        <div class="row">
+          <input id="q" style="flex:1" placeholder="What did I actually do today?" />
+          <button type="button" id="ask">Ask</button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script src="/static/app.js"></script>
+  <script>
+    async function refresh() {
+      const t = await api("/api/today");
+      if (t.halt) { location.href = "/halt"; return; }
+      if (t.needs_gate) { location.href = "/gate"; return; }
+      el("status").textContent = "Brain online. Plan locked for today.";
+      const blocks = (t.plan.timeline || []).map((b) => `${b.start || ""}–${b.end || ""} ${b.task}`).join("<br>");
+      el("plan").innerHTML = `<p>${t.plan.outcomes}</p><p>${blocks}</p>`;
+      el("approvals").innerHTML = t.approvals.length
+        ? t.approvals.map((a) => `<div><p>${a.kind}</p><pre>${JSON.stringify(a.payload, null, 0)}</pre>
+            <div class="row">
+              <button data-id="${a.id}" data-act="accept">Accept</button>
+              <button class="ghost" data-id="${a.id}" data-act="keep">Keep seen</button>
+              <button class="ghost" data-id="${a.id}" data-act="reject">Ignore</button>
+            </div></div>`).join("")
+        : "<p>None pending.</p>";
+      el("opps").innerHTML = t.opportunities.length
+        ? "<ul>" + t.opportunities.map((o) => `<li><span class="${o.state}">${o.state}</span> — <a href="${o.url}">${o.role || o.url}</a></li>`).join("") + "</ul>"
+        : "<p>No postings yet.</p>";
+      el("mail").innerHTML = t.mail.length
+        ? "<ul>" + t.mail.map((m) => `<li>${m.classification}: ${m.subject}</li>`).join("") + "</ul>"
+        : "<p>No actionable mail cards.</p>";
+      el("rituals").innerHTML = t.rituals.length
+        ? t.rituals.map((r) => `<div class="row"><span>${r.name}</span>
+            ${r.launch_url ? `<a href="${r.launch_url}" target="_blank">Open</a>` : ""}
+            <button data-done="${r.id}">Done</button></div>`).join("")
+        : "<p>No rituals pinned. Add via API or a later settings page.</p>";
+      el("heart").innerHTML = t.heartbeats.length
+        ? "<ul>" + t.heartbeats.map((h) => `<li>${h.sensor}: ${h.last_seen}</li>`).join("") + "</ul>"
+        : "<p>No sensors yet. ActivityWatch and the phone observer will show up here.</p>";
+    }
+
+    document.body.addEventListener("click", async (e) => {
+      const t = e.target;
+      if (t.dataset.act && t.dataset.id) {
+        await api(`/api/approvals/${t.dataset.id}/${t.dataset.act}`, { method: "POST" });
+        await refresh();
+      }
+      if (t.dataset.done) {
+        const out = await api(`/api/rituals/${t.dataset.done}/done`, { method: "POST" });
+        alert(out.praise);
+        await refresh();
+      }
+    });
+
+    el("ask").onclick = async () => {
+      const message = el("q").value.trim();
+      if (!message) return;
+      const r = await api("/api/chat", { method: "POST", body: JSON.stringify({ message }) });
+      el("log").textContent = (r.offline ? "(local snapshot)\n" : "") + r.reply;
+    };
+
+    refresh().catch((err) => { el("status").textContent = "Brain offline — " + err.message; });
+    setInterval(() => refresh().catch(() => {}), 8000);
+  </script>
+</body>
+</html>

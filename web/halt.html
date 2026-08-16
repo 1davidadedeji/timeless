@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Timeless — meeting</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="overlay">
+    <div class="panel card">
+      <h1 id="title">Meeting</h1>
+      <p class="sub" id="when"></p>
+      <p>Acknowledge this, then you can multitask. There is no later.</p>
+      <div class="row">
+        <button type="button" id="join">Join</button>
+        <button type="button" class="ghost" id="in">I'm in</button>
+      </div>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+  <script>
+    let halt = null;
+    async function tick() {
+      const t = await api("/api/today");
+      halt = t.halt;
+      if (!halt) { location.href = t.needs_gate ? "/gate" : "/"; return; }
+      el("title").textContent = halt.title;
+      el("when").textContent = halt.start_at + " → " + halt.end_at;
+      el("join").style.display = halt.join_url ? "inline-block" : "none";
+    }
+    el("join").onclick = async () => {
+      if (!halt) return;
+      await api(`/api/meetings/${halt.id}/ack`, { method: "POST", body: JSON.stringify({ action: "join" }) });
+      if (halt.join_url) window.open(halt.join_url, "_blank");
+      location.href = "/";
+    };
+    el("in").onclick = async () => {
+      if (!halt) return;
+      await api(`/api/meetings/${halt.id}/ack`, { method: "POST", body: JSON.stringify({ action: "im_in" }) });
+      location.href = "/";
+    };
+    tick();
+    setInterval(tick, 4000);
+  </script>
+</body>
+</html>
