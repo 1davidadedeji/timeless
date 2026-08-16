@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.timeless.brain</string>
+  <key>WorkingDirectory</key>
+  <string>ROOT</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>VENV/bin/timeless</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>TIMELESS_HOST</key>
+    <string>127.0.0.1</string>
+    <key>TIMELESS_PORT</key>
+    <string>8787</string>
+    <key>OLLAMA_HOST</key>
+    <string>http://127.0.0.1:11434</string>
+    <key>OLLAMA_MODEL</key>
+    <string>qwen2.5:7b</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>HOME/Library/Application Support/Timeless/logs/brain.log</string>
+  <key>StandardErrorPath</key>
+  <string>HOME/Library/Application Support/Timeless/logs/brain.err</string>
+</dict>
+</plist>

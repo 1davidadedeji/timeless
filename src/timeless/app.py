@@ -69,6 +69,11 @@ class ChatIn(BaseModel):
     message: str
 
 
+class HeartbeatIn(BaseModel):
+    sensor: str
+    detail: str | None = None
+
+
 def create_app(db_path: str | None = None) -> FastAPI:
     db_path = db_path or os.environ.get("TIMELESS_DB", str(DEFAULT_DB))
     store = Store(db_path)
@@ -135,6 +140,11 @@ def create_app(db_path: str | None = None) -> FastAPI:
     def ingest_phone(body: PhoneIn):
         eid = store.ingest_phone(body.summary, body.payload)
         return {"id": eid}
+
+    @app.post("/api/heartbeat")
+    def heartbeat(body: HeartbeatIn):
+        store.heartbeat(body.sensor, body.detail)
+        return {"ok": True}
 
     @app.post("/api/mail")
     def mail(body: MailIn):

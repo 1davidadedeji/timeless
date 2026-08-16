@@ -57,3 +57,11 @@ def test_meeting_ack_api(tmp_path):
     assert halt["id"] == m["id"]
     c.post(f"/api/meetings/{m['id']}/ack", json={"action": "im_in"})
     assert c.get("/api/today").json()["halt"] is None
+
+
+def test_heartbeat_api(tmp_path):
+    c = client(tmp_path)
+    r = c.post("/api/heartbeat", json={"sensor": "mac_aw", "detail": "ok"})
+    assert r.status_code == 200
+    sensors = [h["sensor"] for h in c.get("/api/today").json()["heartbeats"]]
+    assert "mac_aw" in sensors

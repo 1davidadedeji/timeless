@@ -1,0 +1,108 @@
+import Cocoa
+import WebKit
+
+/// Borderless windows refuse key status unless this is overridden — without it, typing never reaches the form.
+final class KeyableWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+final class OverlayController: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+    let base = ProcessInfo.processInfo.environment["TIMELESS_URL"] ?? "http://127.0.0.1:8787"
+    var window: KeyableWindow!
+    var web: WKWebView!
+    var timer: Timer?
+    var currentPath: String = ""
+    var isBlocking = false
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        let screen = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        window = KeyableWindow(
+            contentRect: screen,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.isOpaque = true
+        window.backgroundColor = NSColor(calibratedRed: 0.05, green: 0.06, blue: 0.07, alpha: 1)
+        window.ignoresMouseEvents = false
+        window.acceptsMouseMovedEvents = true
+
+        let config = WKWebViewConfiguration()
+        config.preferences.isElementFullscreenEnabled = false
+        web = WKWebView(frame: screen, configuration: config)
+        web.autoresizingMask = [.width, .height]
+        web.navigationDelegate = self
+        web.setValue(false, forKey: "drawsBackground")
+        window.contentView = web
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeFirstResponder(web)
+
+        poll()
+        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.poll()
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        window.makeKey()
+        window.makeFirstResponder(web)
+        webView.evaluateJavaScript(
+            "document.querySelector('textarea,input')?.focus()",
+            completionHandler: nil
+        )
+    }
+
+    func poll() {
+        guard let url = URL(string: base + "/api/today") else { return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let self else { return }
+            guard let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else {
+                DispatchQueue.main.async { self.present("/gate") }
+                return
+            }
+            DispatchQueue.main.async {
+                if json["halt"] is [String: Any] {
+                    self.present("/halt")
+                } else if json["needs_gate"] as? Bool ?? true {
+                    self.present("/gate")
+                } else {
+                    self.isBlocking = false
+                    self.currentPath = ""
+                    self.window.orderOut(nil)
+                }
+            }
+        }.resume()
+    }
+
+    func present(_ path: String) {
+        let wasHidden = !window.isVisible
+        isBlocking = true
+        if wasHidden {
+            window.orderFrontRegardless()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeFirstResponder(web)
+        }
+        showPage(path)
+    }
+
+    func showPage(_ path: String) {
+        if currentPath == path, web.url != nil { return }
+        currentPath = path
+        if let url = URL(string: base + path) {
+            web.load(URLRequest(url: url))
+        }
+    }
+}
+
+let app = NSApplication.shared
+let delegate = OverlayController()
+app.delegate = delegate
+app.run()
