@@ -44,7 +44,7 @@ Rebuild later with `./scripts/build-screenpipe.sh`.
 
 ## Mail / Tailscale / calendar
 
-Not installed yet. Brain APIs for mail cards and meetings exist; connect accounts in a later pass.
+Calendar.app (EventKit) and Mail.app ingest on a timer. Allow Calendar and Automation when macOS asks. Dashboard: http://127.0.0.1:8787 — Chicago timezone, nightly recap overlay at 23:55.
 
 ## Dev
 
