@@ -34,10 +34,17 @@
   <script>
     const labels = { start_30m: "30 min · virtual", start_2h: "2 hours · leave soon", start_1d: "Tomorrow · prep", submit_4h: "4 hours · submit", present_30m: "30 min · present" };
     let halt = null;
+    let miss = 0;
     async function tick() {
       const t = await api("/api/today");
       halt = t.halt;
-      if (!halt) { location.href = t.needs_recap ? "/recap" : (t.needs_gate ? "/gate" : "/"); return; }
+      if (!halt) {
+        miss += 1;
+        if (miss < 2) return;
+        location.href = t.needs_recap ? "/recap" : (t.needs_gate ? "/gate" : "/");
+        return;
+      }
+      miss = 0;
       const reminder = halt.halt_kind === "reminder";
       el("title").textContent = halt.title;
       el("when").textContent = (halt.start_at || "") + " → " + (halt.end_at || "");

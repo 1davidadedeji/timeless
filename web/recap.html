@@ -51,6 +51,38 @@
       el("body").textContent = c.body || "";
       el("go").textContent = i >= cards.length - 1 ? "I saw this" : "Next";
       el("dots").innerHTML = cards.map((_, n) => `<i class="${n===i?"on":""}"></i>`).join("");
+      el("go").style.display = cards.length ? "block" : "none";
+    }
+    function phoneStep() {
+      el("dots").innerHTML = "";
+      el("kicker").textContent = "Phone";
+      el("title").textContent = "Reconnect";
+      el("stat").textContent = "ADB";
+      el("body").textContent = "Wireless if this Mac is on the phone hotspot (or the saved Wi-Fi IP). USB if the cable is plugged in. Skip uses Mac data only.";
+      el("go").style.display = "none";
+      let actions = document.getElementById("phone-actions");
+      if (!actions) {
+        actions = document.createElement("div");
+        actions.id = "phone-actions";
+        actions.innerHTML = `<button type="button" id="ph-w">Wireless</button>
+          <button type="button" id="ph-u">USB</button>
+          <button type="button" id="ph-s" style="background:transparent;color:#f3ead8;border:1px solid #c4a35a;margin-top:8px">Skip</button>
+          <p id="ph-msg" style="margin-top:12px;font-size:13px"></p>`;
+        el("card").appendChild(actions);
+        const msg = () => document.getElementById("ph-msg");
+        const run = async (body) => {
+          msg().textContent = "Working…";
+          const r = await api("/api/recap/generate", { method: "POST", body: JSON.stringify(body) });
+          msg().textContent = (r.phone && r.phone.detail) || (r.phone_synced ? "Phone synced." : "Mac-only recap.");
+          cards = r.cards || [];
+          i = 0;
+          actions.remove();
+          paint();
+        };
+        document.getElementById("ph-w").onclick = () => run({ skip_phone: false, mode: "wireless" });
+        document.getElementById("ph-u").onclick = () => run({ skip_phone: false, mode: "usb" });
+        document.getElementById("ph-s").onclick = () => run({ skip_phone: true });
+      }
     }
     el("go").onclick = async () => {
       if (i >= cards.length - 1) {
@@ -65,9 +97,13 @@
       const t = await api("/api/today");
       if (t.halt) { location.href = "/halt"; return; }
       if (!t.needs_recap) { location.href = t.needs_gate ? "/gate" : "/"; return; }
-      cards = (t.recap && t.recap.cards) || [];
-      if (!cards.length) cards = [{ kicker: "Admit one", title: "Empty house", stat: "0", body: "No events stored for this Chicago day." }];
-      paint();
+      const existing = t.recap && t.recap.cards;
+      if (existing && existing.length && t.recap.phone_synced) {
+        cards = existing;
+        paint();
+        return;
+      }
+      phoneStep();
     })().catch((err) => { el("body").textContent = err.message; });
   </script>
 </body>

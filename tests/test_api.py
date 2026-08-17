@@ -16,6 +16,32 @@ def test_access_lists_urls_on_loopback(tmp_path):
     assert any("127.0.0.1" in u for u in r.json()["urls"])
 
 
+def test_today_does_not_generate_recap_or_pull_phone(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "timeless.app.ensure_recap",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("today must not generate recap")),
+    )
+    c = client(tmp_path)
+    t = c.get("/api/today").json()
+    assert t["needs_recap"] is True
+    assert t["recap"] is None
+
+
+def test_skip_phone_generates_mac_only_recap(monkeypatch, tmp_path):
+    monkeypatch.setattr("timeless.recap.pull_phone", lambda *a, **k: (_ for _ in ()).throw(AssertionError("skip")))
+    c = client(tmp_path)
+    r = c.post("/api/recap/generate", json={"skip_phone": True})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["phone_synced"] is False
+    assert body["cards"]
+    t = c.get("/api/today").json()
+    assert t["recap"]["phone_synced"] is False
+    ack = c.post("/api/recap/ack")
+    assert ack.status_code == 200
+    assert c.get("/api/today").json()["needs_recap"] is False
+
+
 def test_today_uses_chicago_and_can_ack_recap(tmp_path):
     c = client(tmp_path)
     t = c.get("/api/today").json()
@@ -24,6 +50,7 @@ def test_today_uses_chicago_and_can_ack_recap(tmp_path):
     assert t["needs_recap"] is True
     assert t["needs_gate"] is True
     assert t["brain"] == "online"
+    c.post("/api/recap/generate", json={"skip_phone": True})
     ack = c.post("/api/recap/ack")
     assert ack.status_code == 200
     later = c.get("/api/today").json()
@@ -46,6 +73,23 @@ def test_plan_and_gate(tmp_path):
     )
     assert ok.status_code == 200
     assert c.get("/api/today").json()["needs_gate"] is False
+
+
+def test_chat_accepts_history(tmp_path):
+    c = client(tmp_path)
+    c.post("/api/plan", json={"outcomes": "work", "timeline": [{"task": "code", "start": "9", "end": "10"}]})
+    r = c.post(
+        "/api/chat",
+        json={
+            "message": "and after that?",
+            "history": [
+                {"role": "user", "content": "what is my plan"},
+                {"role": "assistant", "content": "Ship the gate."},
+            ],
+        },
+    )
+    assert r.status_code == 200
+    assert "reply" in r.json()
 
 
 def test_chat_offline_does_not_500(tmp_path):

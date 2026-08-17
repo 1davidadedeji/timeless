@@ -2,6 +2,7 @@
 # Keep an ADB connection to the phone without a cable when the network allows it.
 set -euo pipefail
 CONF="${TIMELESS_ADB_CONF:-$HOME/Library/Application Support/Timeless/phone-adb.conf}"
+MODE="${TIMELESS_ADB_MODE:-wireless}"
 mkdir -p "$(dirname "$CONF")"
 
 usb_ready() {
@@ -28,6 +29,15 @@ connect_host() {
   fi
   return 1
 }
+
+if [ "$MODE" = "usb" ]; then
+  if usb_ready; then
+    echo "usb adb ready"
+    exit 0
+  fi
+  echo "no usb adb phone"
+  exit 0
+fi
 
 if usb_ready; then
   IP="$(phone_ip)"

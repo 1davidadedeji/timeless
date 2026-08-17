@@ -128,15 +128,39 @@ textarea { width: 100%; min-height: 90px; }
 label { display: block; margin: 0.6rem 0 0.25rem; color: var(--muted); font-size: 0.85rem; }
 .chat { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; min-height: 8rem; }
 #plan { flex: 1; overflow-wrap: anywhere; }
-#log {
+.chat-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent);
+}
+.chat-clear { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+.chat-log, #log {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--muted);
   font-size: 0.95rem;
-  max-height: 12rem;
+  max-height: 16rem;
+  min-height: 8rem;
   overflow: auto;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
 }
+.bubble {
+  max-width: 92%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 12px;
+  animation: pop 0.18s ease;
+}
+.bubble.you { align-self: flex-end; background: var(--accent); color: #100c06; }
+.bubble.bot { align-self: flex-start; background: #111; border: 1px solid var(--line); color: var(--ink); }
+.bubble.busy { color: var(--muted); font-style: italic; }
+.chat-hints { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.hint {
+  background: transparent; color: var(--ink); border: 1px solid var(--line);
+  font-size: 0.75rem; padding: 0.3rem 0.55rem;
+}
+.phone-bar { margin-bottom: 0.5rem; }
 #heat { overflow-x: auto; max-width: 100%; }
 .heat {
   display: grid;
@@ -215,7 +239,7 @@ code { display: inline; padding: 0.1rem 0.25rem; }
 .fab-panel {
   display: none; width: min(360px, calc(100vw - 1.5rem));
   background: var(--card); border: 1px solid var(--line); border-radius: 14px;
-  padding: 0.9rem; max-height: min(52dvh, 420px);
+  padding: 0.9rem; max-height: min(70dvh, 560px);
   flex-direction: column; animation: pop 0.2s ease;
 }
 .fab.open .fab-panel { display: flex; }

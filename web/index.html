@@ -59,6 +59,11 @@
         </section>
         <section class="card">
           <h2>Sensors</h2>
+          <div class="row phone-bar">
+            <button type="button" id="ph-w">Wireless</button>
+            <button type="button" class="ghost" id="ph-u">USB</button>
+          </div>
+          <p class="sub" id="phone-msg">Reconnect the phone when this Mac is on its hotspot, or with USB.</p>
           <div class="scroll" id="heart"></div>
         </section>
       </div>
@@ -66,10 +71,19 @@
   </div>
   <div class="fab" id="fab">
     <div class="fab-panel chat">
-      <div id="log"></div>
+      <div class="chat-head">
+        <span>Timeless</span>
+        <button type="button" class="ghost chat-clear" id="chat-clear">Clear</button>
+      </div>
+      <div id="log" class="chat-log"></div>
+      <div class="chat-hints" id="hints">
+        <button type="button" class="hint" data-q="What did I do today?">Today</button>
+        <button type="button" class="hint" data-q="open leetcode">LeetCode</button>
+        <button type="button" class="hint" data-q="What's on my calendar?">Calendar</button>
+      </div>
       <div class="row">
-        <input id="q" placeholder="add event · plan outcomes · open leetcode" />
-        <button type="button" id="ask">Ask</button>
+        <input id="q" placeholder="Ask or tell me to do something…" autocomplete="off" />
+        <button type="button" id="ask">Send</button>
       </div>
     </div>
     <button type="button" class="fab-btn" id="fab-toggle" aria-label="Chat">+</button>
@@ -104,20 +118,13 @@
         .map(([k, v]) => `${k.replace(/_/g, " ")} ${String(v).slice(0, 72)}`)
         .join(" · ");
     }
-    async function refresh() {
-      const t = await api("/api/today");
-      if (t.halt) { location.href = "/halt"; return; }
-      if (t.needs_recap) { location.href = "/recap"; return; }
-      if (t.needs_gate) { location.href = "/gate"; return; }
-      el("status").textContent = t.brain === "online"
-        ? `Brain online · ${t.day} ${t.tz}`
-        : "Brain offline";
-      const heat = (t.heatmap || []).map((d) => {
-        const n = d.count || 0;
-        const lvl = n === 0 ? 0 : n < 3 ? 1 : n < 8 ? 2 : n < 20 ? 3 : 4;
-        return `<span class="cell" title="${esc(d.day)}: ${n}" data-lvl="${lvl}"></span>`;
-      }).join("");
-      el("heat").innerHTML = `<div class="heat">${heat}</div>`;
+    let lastMain = "";
+    let lastSide = "";
+    function editing() {
+      const a = document.activeElement;
+      return a && ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName) && a.id !== "q";
+    }
+    function paintMain(t) {
       const blocks = (t.plan.timeline || []).map((b, i) =>
         `<tr><td><input data-plan="${i}" data-k="start" value="${esc(b.start || "")}" /></td>
          <td><input data-plan="${i}" data-k="end" value="${esc(b.end || "")}" /></td>
@@ -175,6 +182,14 @@
             ${r.launch_url ? `<a href="${esc(r.launch_url)}" target="_blank">Open</a>` : ""}
             <button data-done="${r.id}">Done</button></div>`).join("")
         : "<p>No rituals pinned.</p>";
+    }
+    async function paintSide(t) {
+      const heat = (t.heatmap || []).map((d) => {
+        const n = d.count || 0;
+        const lvl = n === 0 ? 0 : n < 3 ? 1 : n < 8 ? 2 : n < 20 ? 3 : 4;
+        return `<span class="cell" title="${esc(d.day)}: ${n}" data-lvl="${lvl}"></span>`;
+      }).join("");
+      el("heat").innerHTML = `<div class="heat">${heat}</div>`;
       el("heart").innerHTML = t.heartbeats.length
         ? `<table class="grid-table"><thead><tr><th>Sensor</th><th>Seen</th><th></th></tr></thead><tbody>` +
           t.heartbeats.map((h) => {
@@ -192,6 +207,33 @@
         }
       } catch (_) {}
     }
+    async function refresh(opts) {
+      const nav = opts && opts.nav;
+      const force = opts && opts.force;
+      const t = await api("/api/today");
+      if (nav) {
+        if (t.halt) { location.href = "/halt"; return; }
+        if (t.needs_recap) { location.href = "/recap"; return; }
+        if (t.needs_gate) { location.href = "/gate"; return; }
+      }
+      el("status").textContent = t.brain === "online"
+        ? `Brain online · ${t.day} ${t.tz}`
+        : "Brain offline";
+      if (editing() && !force) return;
+      const main = JSON.stringify({
+        plan: t.plan, meetings: t.meetings, opps: t.opportunities,
+        approvals: t.approvals, mail: t.mail, rituals: t.rituals,
+      });
+      const side = JSON.stringify({ heat: t.heatmap, heart: t.heartbeats });
+      if (force || main !== lastMain) {
+        lastMain = main;
+        paintMain(t);
+      }
+      if (force || side !== lastSide) {
+        lastSide = side;
+        await paintSide(t);
+      }
+    }
 
     async function savePlan() {
       const outcomes = el("outcomes").value;
@@ -200,7 +242,7 @@
         return { start: inputs[0].value, end: inputs[1].value, task: inputs[2].value };
       }).filter((b) => b.task.trim());
       await api("/api/plan", { method: "POST", body: JSON.stringify({ outcomes, timeline }) });
-      await refresh();
+      await refresh({ force: true });
     }
 
     document.body.addEventListener("click", async (e) => {
@@ -208,12 +250,12 @@
       if (t.id === "save-plan") await savePlan();
       if (t.dataset.act && t.dataset.id) {
         await api(`/api/approvals/${t.dataset.id}/${t.dataset.act}`, { method: "POST" });
-        await refresh();
+        await refresh({ force: true });
       }
       if (t.dataset.done) {
         const out = await api(`/api/rituals/${t.dataset.done}/done`, { method: "POST" });
         alert(out.praise);
-        await refresh();
+        await refresh({ force: true });
       }
     });
     document.body.addEventListener("change", async (e) => {
@@ -222,29 +264,91 @@
         const body = {};
         body[t.dataset.k] = t.value;
         await api(`/api/meetings/${t.dataset.meet}`, { method: "PATCH", body: JSON.stringify(body) });
-        await refresh();
+        await refresh({ force: true });
       }
       if (t.dataset.opp && t.dataset.stateSel) {
         await api(`/api/opportunities/${t.dataset.opp}/state`, { method: "POST", body: JSON.stringify({ state: t.value }) });
-        await refresh();
+        await refresh({ force: true });
       }
       if (t.dataset.oppEdit && t.dataset.k) {
         const body = {};
         body[t.dataset.k] = t.value;
         await api(`/api/opportunities/${t.dataset.oppEdit}`, { method: "PATCH", body: JSON.stringify(body) });
-        await refresh();
+        await refresh({ force: true });
       }
     });
 
     el("fab-toggle").onclick = () => el("fab").classList.toggle("open");
-    el("ask").onclick = async () => {
-      const message = el("q").value.trim();
+    const chatKey = "timeless_chat";
+    let thread = [];
+    try { thread = JSON.parse(localStorage.getItem(chatKey) || "[]"); } catch (_) { thread = []; }
+    function renderChat() {
+      if (!thread.length) {
+        el("log").innerHTML = `<div class="bubble bot">Hey. Ask about the day, or tell me to open something, add an event, or update the plan.</div>`;
+        return;
+      }
+      el("log").innerHTML = thread.map((m) =>
+        `<div class="bubble ${m.role === "user" ? "you" : "bot"}">${esc(m.content)}</div>`
+      ).join("");
+      el("log").scrollTop = el("log").scrollHeight;
+    }
+    function saveChat() {
+      localStorage.setItem(chatKey, JSON.stringify(thread.slice(-40)));
+    }
+    async function sendChat(message) {
+      message = (message || "").trim();
       if (!message) return;
-      const r = await api("/api/chat", { method: "POST", body: JSON.stringify({ message }) });
-      el("log").textContent = (r.offline ? "(local snapshot)\n" : "") + r.reply;
-    };
+      thread.push({ role: "user", content: message });
+      renderChat();
+      el("log").insertAdjacentHTML("beforeend", `<div class="bubble bot busy" id="typing">…</div>`);
+      el("log").scrollTop = el("log").scrollHeight;
+      el("q").value = "";
+      el("ask").disabled = true;
+      try {
+        const history = thread.slice(0, -1).map((m) => ({
+          role: m.role === "user" ? "user" : "assistant",
+          content: m.content,
+        }));
+        const r = await api("/api/chat", { method: "POST", body: JSON.stringify({ message, history }) });
+        const reply = (r.offline ? "(offline) " : "") + (r.reply || "");
+        thread.push({ role: "assistant", content: reply });
+        saveChat();
+      } catch (err) {
+        thread.push({ role: "assistant", content: err.message || "Could not reach the brain." });
+      }
+      el("ask").disabled = false;
+      renderChat();
+      await refresh({ force: true });
+    }
+    renderChat();
+    el("ask").onclick = () => sendChat(el("q").value);
+    el("q").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendChat(el("q").value);
+      }
+    });
+    el("chat-clear").onclick = () => { thread = []; saveChat(); renderChat(); };
+    document.body.addEventListener("click", (e) => {
+      if (e.target.classList && e.target.classList.contains("hint")) sendChat(e.target.dataset.q);
+    });
+    async function phoneLink(mode) {
+      const msg = el("phone-msg");
+      msg.textContent = mode === "usb" ? "Looking for USB…" : "Trying wireless (hotspot / saved IP)…";
+      try {
+        const r = await api("/api/phone/connect", { method: "POST", body: JSON.stringify({ mode }) });
+        msg.textContent = r.ok
+          ? `Linked (${mode}): ${(r.devices || []).join(", ") || "ok"}`
+          : (r.detail || "Phone not reachable. Skip recap still uses Mac data.");
+      } catch (err) {
+        msg.textContent = err.message || "Connect failed.";
+      }
+      await refresh({ force: true });
+    }
+    el("ph-w").onclick = () => phoneLink("wireless");
+    el("ph-u").onclick = () => phoneLink("usb");
 
-    refresh().catch((err) => { el("status").textContent = "Brain offline — " + err.message; });
+    refresh({ nav: true }).catch((err) => { el("status").textContent = "Brain offline — " + err.message; });
     setInterval(() => refresh().catch(() => {}), 8000);
   </script>
 </body>

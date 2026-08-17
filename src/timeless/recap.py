@@ -12,6 +12,47 @@ ROOT = Path(__file__).resolve().parents[2]
 PHONE_PULL = ROOT / "scripts" / "phone_aw_pull.sh"
 
 
+def adb_devices() -> list[tuple[str, str]]:
+    try:
+        out = subprocess.check_output(["adb", "devices"], text=True, timeout=8, stderr=subprocess.DEVNULL)
+    except Exception:
+        return []
+    rows = []
+    for line in out.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 2:
+            rows.append((parts[0], parts[1]))
+    return rows
+
+
+def connect_phone(mode: str = "wireless") -> dict[str, Any]:
+    mode = mode if mode in {"wireless", "usb"} else "wireless"
+    env = {**os.environ, "TIMELESS_ADB_MODE": mode}
+    detail = ""
+    try:
+        r = subprocess.run(
+            ["/bin/bash", str(PHONE_PULL)],
+            check=False,
+            timeout=40,
+            capture_output=True,
+            env=env,
+        )
+        detail = (r.stdout or b"").decode("utf-8", "replace") + (r.stderr or b"").decode("utf-8", "replace")
+    except Exception as exc:
+        return {"ok": False, "mode": mode, "detail": str(exc), "devices": []}
+    devices = [serial for serial, state in adb_devices() if state == "device"]
+    if mode == "usb":
+        devices = [s for s in devices if ":" not in s]
+    ok = bool(devices)
+    return {
+        "ok": ok,
+        "mode": mode,
+        "detail": (detail.strip() or ("phone linked" if ok else "no adb phone")),
+        "devices": devices,
+        "pulled": ok,
+    }
+
+
 def pull_phone(timeout: int = 25) -> bool:
     if not PHONE_PULL.exists():
         return False

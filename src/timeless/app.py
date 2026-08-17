@@ -16,7 +16,7 @@ from timeless.calendar_write import create_calendar_event
 from timeless.clock import day_key, due_recap_day, zone
 from timeless.hands import parse, run as run_hands
 from timeless.local_cmd import apply_local, parse_local
-from timeless.recap import ensure_recap
+from timeless.recap import build_cards, connect_phone, ensure_recap
 from timeless.store import Store
 
 WEB = Path(__file__).resolve().parents[2] / "web"
@@ -98,8 +98,23 @@ class MailIn(BaseModel):
     card: str
 
 
+class RecapGenIn(BaseModel):
+    skip_phone: bool = False
+    mode: str | None = None
+
+
+class PhoneConnectIn(BaseModel):
+    mode: str = "wireless"
+
+
+class ChatTurn(BaseModel):
+    role: str
+    content: str
+
+
 class ChatIn(BaseModel):
     message: str
+    history: list[ChatTurn] = []
 
 
 class HeartbeatIn(BaseModel):
@@ -141,9 +156,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
         store.close_elapsed_meetings()
         store.expire_approvals()
         now_day = day_key()
-        recap = None
-        if store.needs_recap():
-            recap = ensure_recap(store, do_pull=os.environ.get("PYTEST_CURRENT_TEST") is None)
+        recap = store.get_recap(due_recap_day())
         plan = store.get_plan(now_day)
         return {
             "plan": plan,
@@ -151,7 +164,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
             "tz": str(zone()),
             "needs_gate": plan is None,
             "needs_recap": store.needs_recap(),
-            "recap": recap or store.get_recap(due_recap_day()),
+            "recap": recap,
             "halt": store.active_halt(),
             "opportunities": store.list_opportunities(),
             "approvals": store.list_approvals(),
@@ -169,6 +182,24 @@ def create_app(db_path: str | None = None) -> FastAPI:
             return store.ack_recap()
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/recap/generate")
+    def recap_generate(body: RecapGenIn):
+        if body.skip_phone:
+            return ensure_recap(store, do_pull=False)
+        linked = connect_phone(body.mode or "wireless")
+        out = ensure_recap(store, do_pull=False)
+        if linked.get("ok"):
+            day = due_recap_day()
+            cards = build_cards(store, day, True)
+            out = store.save_recap(day, cards, True)
+        out = dict(out)
+        out["phone"] = linked
+        return out
+
+    @app.post("/api/phone/connect")
+    def phone_connect(body: PhoneConnectIn):
+        return connect_phone(body.mode)
 
     @app.post("/api/plan")
     def save_plan(body: PlanIn):
@@ -300,20 +331,30 @@ def create_app(db_path: str | None = None) -> FastAPI:
             },
             default=str,
         )[:8000]
-        prompt = (
-            "You are Timeless, a local personal assistant. Answer from this JSON snapshot. "
-            "If the user asks you to open a site or app, say they can type: open leetcode "
-            "or open coursera on my phone. You cannot send messages yourself.\n"
-            f"{context}\nUser: {body.message}"
+        system = (
+            "You are Timeless, a local personal assistant talking with David. "
+            "Be conversational and brief. Use the JSON snapshot. "
+            "You can remind them they can type commands like: open leetcode, "
+            "add event Interview 2026-08-20 14:00-15:00 https://meet.google.com/…, "
+            "plan outcomes: …, mark Intern applied. You cannot send messages or email."
         )
+        messages = [{"role": "system", "content": system + "\nSnapshot:\n" + context}]
+        for turn in body.history[-12:]:
+            role = turn.role if turn.role in {"user", "assistant"} else "user"
+            content = (turn.content or "").strip()
+            if content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": body.message})
         try:
             r = httpx.post(
-                f"{ollama}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False},
+                f"{ollama}/api/chat",
+                json={"model": model, "messages": messages, "stream": False},
                 timeout=60,
             )
             r.raise_for_status()
-            return {"reply": r.json().get("response", "").strip(), "offline": False}
+            data = r.json()
+            reply = (data.get("message") or {}).get("content") or data.get("response") or ""
+            return {"reply": reply.strip(), "offline": False}
         except Exception:
             return {
                 "reply": _offline_chat(body.message, snapshot),

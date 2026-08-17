@@ -63,25 +63,45 @@ final class OverlayController: NSObject, NSApplicationDelegate, WKNavigationDele
             guard let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else {
-                DispatchQueue.main.async { self.present("/gate") }
                 return
             }
             DispatchQueue.main.async {
+                let path: String
                 if json["halt"] is [String: Any] {
-                    self.present("/halt")
+                    path = "/halt"
                 } else if json["needs_recap"] as? Bool ?? false {
-                    self.present("/recap")
+                    path = "/recap"
                 } else if json["needs_gate"] as? Bool ?? true {
-                    self.present("/gate")
+                    path = "/gate"
                 } else {
-                    self.isBlocking = false
-                    self.currentPath = ""
-                    self.window.orderOut(nil)
-                    NSApp.setActivationPolicy(.accessory)
-                    NSApp.hide(nil)
+                    path = ""
                 }
+                self.applyPath(path)
             }
         }.resume()
+    }
+
+    var pendingPath: String = "\u{0}"
+    var pendingHits: Int = 0
+
+    func applyPath(_ path: String) {
+        if path == pendingPath {
+            pendingHits += 1
+        } else {
+            pendingPath = path
+            pendingHits = 1
+        }
+        let already = path.isEmpty ? !window.isVisible : (currentPath == path && window.isVisible)
+        if pendingHits < 2 && !already { return }
+        if path.isEmpty {
+            isBlocking = false
+            currentPath = ""
+            window.orderOut(nil)
+            NSApp.setActivationPolicy(.accessory)
+            NSApp.hide(nil)
+            return
+        }
+        present(path)
     }
 
     func present(_ path: String) {
