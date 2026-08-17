@@ -50,6 +50,39 @@ def test_confirmation_requires_approval(store):
     assert store.list_opportunities()[0]["state"] == "applied"
 
 
+def test_shortlisted_state_and_zoom_reminder(store):
+    opp = store.upsert_opportunity(url="https://example.com/hack", role="UAPB Hack", kind="hackathon")
+    store.set_opportunity_state(opp["id"], "shortlisted")
+    assert store.list_opportunities()[0]["state"] == "shortlisted"
+    start = datetime(2026, 8, 20, 18, 0, tzinfo=timezone.utc)
+    end = datetime(2026, 8, 20, 19, 0, tzinfo=timezone.utc)
+    store.upsert_meeting(
+        "zoom-1",
+        "Standup",
+        start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "https://zoom.us/j/9",
+    )
+    at = datetime(2026, 8, 20, 17, 40, tzinfo=timezone.utc)
+    halt = store.active_halt(at)
+    assert halt["halt_kind"] == "reminder"
+    assert halt["purpose"] == "start_30m"
+
+
+def test_hackathon_email_becomes_program_and_meeting(store):
+    store.add_mail_action(
+        "mid-hack",
+        "gmail",
+        "UAPB Hackathon August 22, 2026",
+        "hackathon",
+        "Submit by August 22, 2026",
+    )
+    opps = store.list_opportunities()
+    assert any(o["kind"] == "hackathon" for o in opps)
+    meetings = store.list_meetings()
+    assert any(m["uid"] == "mail:mid-hack" for m in meetings)
+
+
 def test_requirement_miss_asks(store):
     store.ingest_url("https://www.linkedin.com/jobs/view/1")
     out = store.ingest_screen_text("You must have 5 years of experience required", "https://www.linkedin.com/jobs/view/1")

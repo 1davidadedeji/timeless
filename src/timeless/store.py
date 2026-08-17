@@ -4,12 +4,18 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from timeless.classify_event import classify_event, looks_like_presentation, looks_like_submission
 from timeless.clock import day_key, due_recap_day, utc_now
 from timeless.db import connect
 from timeless.ingest import classify_screen_text, looks_like_job_url
+from timeless.mailer import first_url, parse_when, program_kind
 from timeless.praise import praise_for
+from timeless.reminders import reminder_fires
 
-VALID_STATES = frozenset({"seen", "applied", "skipped", "waiting", "ignored"})
+VALID_STATES = frozenset(
+    {"seen", "applied", "shortlisted", "interview", "waiting", "offer", "rejected", "skipped", "ignored"}
+)
+VALID_KINDS = frozenset({"internship", "hackathon", "conference", "other"})
 MEETING_ACKS = frozenset({"join", "im_in"})
 
 
@@ -148,37 +154,44 @@ class Store:
         company: str | None = None,
         role: str | None = None,
         state: str = "seen",
+        kind: str = "internship",
         deadline_at: str | None = None,
         source: str = "url",
     ) -> dict[str, Any]:
         if state not in VALID_STATES:
             raise ValueError("bad state")
+        if kind not in VALID_KINDS:
+            raise ValueError("bad kind")
         now = _iso()
         row = self.conn.execute("SELECT * FROM opportunities WHERE url=?", (url,)).fetchone()
         if row:
             self.conn.execute(
                 """
                 UPDATE opportunities SET company=COALESCE(?, company), role=COALESCE(?, role),
-                    deadline_at=COALESCE(?, deadline_at), updated_at=?
+                    deadline_at=COALESCE(?, deadline_at), kind=COALESCE(?, kind), updated_at=?
                 WHERE id=?
                 """,
-                (company, role, deadline_at, now, row["id"]),
+                (company, role, deadline_at, kind, now, row["id"]),
             )
             self.conn.commit()
             return row_to_dict(self.conn.execute("SELECT * FROM opportunities WHERE id=?", (row["id"],)).fetchone())
         cur = self.conn.execute(
             """
-            INSERT INTO opportunities(company, role, url, state, deadline_at, source, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO opportunities(company, role, url, state, kind, deadline_at, source, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (company, role, url, state, deadline_at, source, now, now),
+            (company, role, url, state, kind, deadline_at, source, now, now),
         )
         self.conn.commit()
         return row_to_dict(self.conn.execute("SELECT * FROM opportunities WHERE id=?", (cur.lastrowid,)).fetchone())
 
-    def set_opportunity_state(self, opportunity_id: int, state: str) -> dict[str, Any]:
+    def set_opportunity_state(self, opportunity_id: int, state: str, kind: str | None = None) -> dict[str, Any]:
         if state not in VALID_STATES:
             raise ValueError("bad state")
+        if kind:
+            if kind not in VALID_KINDS:
+                raise ValueError("bad kind")
+            self.conn.execute("UPDATE opportunities SET kind=? WHERE id=?", (kind, opportunity_id))
         self.conn.execute(
             "UPDATE opportunities SET state=?, updated_at=? WHERE id=?",
             (state, _iso(), opportunity_id),
@@ -324,17 +337,53 @@ class Store:
 
     def add_mail_action(self, message_id: str, account: str, subject: str, classification: str, card: str) -> dict[str, Any]:
         existing = self.conn.execute("SELECT * FROM mail_actions WHERE message_id=?", (message_id,)).fetchone()
-        if existing:
-            return row_to_dict(existing)
-        cur = self.conn.execute(
-            """
-            INSERT INTO mail_actions(message_id, account, subject, classification, card, status)
-            VALUES (?, ?, ?, ?, ?, 'open')
-            """,
-            (message_id, account, subject, classification, card),
-        )
-        self.conn.commit()
-        return row_to_dict(self.conn.execute("SELECT * FROM mail_actions WHERE id=?", (cur.lastrowid,)).fetchone())
+        if not existing:
+            cur = self.conn.execute(
+                """
+                INSERT INTO mail_actions(message_id, account, subject, classification, card, status)
+                VALUES (?, ?, ?, ?, ?, 'open')
+                """,
+                (message_id, account, subject, classification, card),
+            )
+            self.conn.commit()
+            row = row_to_dict(self.conn.execute("SELECT * FROM mail_actions WHERE id=?", (cur.lastrowid,)).fetchone())
+        else:
+            row = row_to_dict(existing)
+        self._promote_mail(message_id, subject, classification, card)
+        return row
+
+    def _promote_mail(self, message_id: str, subject: str, classification: str, card: str) -> None:
+        blob = f"{subject} {card}"
+        url = first_url(blob) or f"mail:{message_id}"
+        kind = program_kind(classification)
+        if kind:
+            state = "seen"
+            if classification == "interview":
+                state = "interview"
+            elif classification == "rejection":
+                state = "rejected"
+            existing = self.conn.execute("SELECT * FROM opportunities WHERE url=?", (url,)).fetchone()
+            if existing:
+                if classification in {"interview", "rejection"}:
+                    self.set_opportunity_state(existing["id"], state, kind)
+                else:
+                    self.upsert_opportunity(url=url, role=subject, kind=kind, source="mail")
+            else:
+                self.upsert_opportunity(url=url, role=subject, kind=kind, state=state, source="mail")
+        when = parse_when(blob)
+        if when and (kind in {"hackathon", "conference"} or classification in {"hackathon", "conference"}):
+            join = first_url(blob)
+            end = when + timedelta(hours=2)
+            self.upsert_meeting(
+                uid=f"mail:{message_id}",
+                title=subject,
+                start_at=_iso(when),
+                end_at=_iso(end),
+                join_url=join,
+                notes=card,
+                kind=kind or "conference",
+                modality="virtual" if join else None,
+            )
 
     def list_mail_actions(self, status: str = "open") -> list[dict[str, Any]]:
         return [
@@ -349,19 +398,100 @@ class Store:
         start_at: str,
         end_at: str,
         join_url: str | None = None,
+        location: str | None = None,
+        notes: str | None = None,
+        kind: str | None = None,
+        modality: str | None = None,
     ) -> dict[str, Any]:
         self.conn.execute(
             """
-            INSERT INTO meetings(uid, title, start_at, end_at, join_url, ack, acked_at)
-            VALUES (?, ?, ?, ?, ?, NULL, NULL)
+            INSERT INTO meetings(uid, title, start_at, end_at, join_url, location, notes, ack, acked_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
             ON CONFLICT(uid) DO UPDATE SET
                 title=excluded.title, start_at=excluded.start_at, end_at=excluded.end_at,
-                join_url=excluded.join_url
+                join_url=excluded.join_url, location=excluded.location, notes=excluded.notes
             """,
-            (uid, title, start_at, end_at, join_url),
+            (uid, title, start_at, end_at, join_url, location, notes),
         )
         self.conn.commit()
+        row = row_to_dict(self.conn.execute("SELECT * FROM meetings WHERE uid=?", (uid,)).fetchone())
+        if not row.get("confirmed"):
+            guess_kind, guess_mod = classify_event(title, join_url, location, notes)
+            kind = kind or guess_kind
+            modality = modality or guess_mod
+            self.conn.execute("UPDATE meetings SET kind=?, modality=? WHERE uid=?", (kind, modality, uid))
+            self.conn.commit()
+        self.sync_reminders(uid)
         return row_to_dict(self.conn.execute("SELECT * FROM meetings WHERE uid=?", (uid,)).fetchone())
+
+    def sync_reminders(self, uid: str) -> None:
+        row = self.conn.execute("SELECT * FROM meetings WHERE uid=?", (uid,)).fetchone()
+        if not row:
+            return
+        start = datetime.fromisoformat(row["start_at"].replace("Z", "+00:00"))
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        kind = row["kind"] or "meeting"
+        modality = row["modality"] or "virtual"
+        title = row["title"] or ""
+        notes = row["notes"] or ""
+        submit = start if looks_like_submission(title, notes) else None
+        present = start if looks_like_presentation(title, notes) else None
+        if submit and kind == "hackathon" and looks_like_submission(title, notes):
+            fires = [("submit_4h", start - timedelta(hours=4))]
+        elif present and looks_like_presentation(title, notes) and not looks_like_submission(title, notes):
+            fires = [("present_30m", start - timedelta(minutes=30))]
+        else:
+            fires = reminder_fires(kind, modality, start, submit=submit, present=present)
+        for purpose, due in fires:
+            self.conn.execute(
+                """
+                INSERT INTO reminders(event_uid, purpose, due_at, acked_at)
+                VALUES (?, ?, ?, NULL)
+                ON CONFLICT(event_uid, purpose) DO UPDATE SET due_at=excluded.due_at
+                WHERE reminders.acked_at IS NULL
+                """,
+                (uid, purpose, _iso(due.astimezone(timezone.utc))),
+            )
+        self.conn.commit()
+
+    def due_reminder(self, now: datetime | None = None) -> dict[str, Any] | None:
+        now_dt = now or _now()
+        now_s = _iso(now_dt)
+        floor = _iso(now_dt - timedelta(hours=18))
+        row = self.conn.execute(
+            """
+            SELECT r.id, r.purpose, r.due_at, r.event_uid, m.id AS meeting_id, m.title, m.join_url,
+                   m.kind, m.modality, m.confirmed, m.start_at, m.end_at, m.location
+            FROM reminders r
+            JOIN meetings m ON m.uid = r.event_uid
+            WHERE r.acked_at IS NULL AND r.due_at <= ? AND r.due_at >= ? AND m.end_at > ?
+              AND NOT (r.purpose LIKE 'start_%' AND m.start_at <= ?)
+            ORDER BY r.due_at LIMIT 1
+            """,
+            (now_s, floor, now_s, now_s),
+        ).fetchone()
+        if not row:
+            return None
+        data = row_to_dict(row)
+        data["halt_kind"] = "reminder"
+        return data
+
+    def ack_reminder(self, reminder_id: int, action: str, kind: str | None = None, modality: str | None = None) -> dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM reminders WHERE id=?", (reminder_id,)).fetchone()
+        if not row:
+            raise ValueError("unknown reminder")
+        if action in {"confirm", "change"}:
+            self.conn.execute(
+                "UPDATE meetings SET kind=COALESCE(?, kind), modality=COALESCE(?, modality), confirmed=1 WHERE uid=?",
+                (kind, modality, row["event_uid"]),
+            )
+            self.sync_reminders(row["event_uid"])
+            self.conn.commit()
+            return self.due_reminder() or row_to_dict(row)
+        self.conn.execute("UPDATE reminders SET acked_at=? WHERE id=?", (_iso(), reminder_id))
+        self.conn.commit()
+        return row_to_dict(self.conn.execute("SELECT * FROM reminders WHERE id=?", (reminder_id,)).fetchone())
 
     def ack_meeting(self, meeting_id: int, action: str) -> dict[str, Any]:
         if action not in MEETING_ACKS:
@@ -390,6 +520,9 @@ class Store:
 
     def active_halt(self, now: datetime | None = None) -> dict[str, Any] | None:
         self.close_elapsed_meetings(now)
+        due = self.due_reminder(now)
+        if due:
+            return due
         now_s = _iso(now or _now())
         row = self.conn.execute(
             """

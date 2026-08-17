@@ -11,7 +11,7 @@ if #available(macOS 14.0, *) {
 _ = sem.wait(timeout: .now() + 8)
 
 let start = Date().addingTimeInterval(-3600)
-guard let end = Calendar.current.date(byAdding: .day, value: 2, to: Date()) else {
+guard let end = Calendar.current.date(byAdding: .day, value: 14, to: Date()) else {
     fputs("[]\n", stdout)
     exit(0)
 }
@@ -33,6 +33,8 @@ for ev in store.events(matching: pred) {
         "start_at": iso.string(from: ev.startDate),
         "end_at": iso.string(from: ev.endDate),
         "join_url": join,
+        "location": ev.location ?? "",
+        "notes": String((ev.notes ?? "").prefix(500)),
     ])
 }
 

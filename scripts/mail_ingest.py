@@ -20,7 +20,7 @@ SCRIPT = r'''
 tell application "Mail"
   set out to ""
   try
-    set lim to 12
+    set lim to 25
     set n to count of messages of inbox
     if n < 1 then return out
     if n < lim then set lim to n

@@ -3,43 +3,78 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Timeless — meeting</title>
+  <title>Timeless — halt</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <div class="overlay">
     <div class="panel card">
-      <h1 id="title">Meeting</h1>
+      <p class="sub" id="why"></p>
+      <h1 id="title">Event</h1>
       <p class="sub" id="when"></p>
-      <p>Acknowledge this, then you can multitask. There is no later.</p>
+      <p id="copy">Acknowledge this, then you can continue.</p>
+      <div class="row" id="typebox" style="display:none">
+        <button type="button" id="confirm">That's right</button>
+        <button type="button" class="ghost" data-k="meeting" data-m="virtual">Virtual meeting</button>
+        <button type="button" class="ghost" data-k="meeting" data-m="physical">In person</button>
+        <button type="button" class="ghost" data-k="hackathon" data-m="virtual">Virtual hackathon</button>
+        <button type="button" class="ghost" data-k="hackathon" data-m="physical">In-person hackathon</button>
+        <button type="button" class="ghost" data-k="conference" data-m="physical">Conference</button>
+      </div>
       <div class="row">
         <button type="button" id="join">Join</button>
+        <button type="button" class="ghost" id="headed">I'm headed</button>
         <button type="button" class="ghost" id="in">I'm in</button>
+        <button type="button" class="ghost" id="dismiss">Dismiss</button>
       </div>
     </div>
   </div>
   <script src="/static/app.js"></script>
   <script>
+    const labels = { start_30m: "30 min · virtual", start_2h: "2 hours · leave soon", start_1d: "Tomorrow · prep", submit_4h: "4 hours · submit", present_30m: "30 min · present" };
     let halt = null;
     async function tick() {
       const t = await api("/api/today");
       halt = t.halt;
-      if (!halt) { location.href = t.needs_gate ? "/gate" : "/"; return; }
+      if (!halt) { location.href = t.needs_recap ? "/recap" : (t.needs_gate ? "/gate" : "/"); return; }
+      const reminder = halt.halt_kind === "reminder";
       el("title").textContent = halt.title;
-      el("when").textContent = halt.start_at + " → " + halt.end_at;
+      el("when").textContent = (halt.start_at || "") + " → " + (halt.end_at || "");
+      el("why").textContent = reminder
+        ? `${halt.kind || "event"} · ${halt.modality || ""} · ${labels[halt.purpose] || halt.purpose}`
+        : "Meeting now";
       el("join").style.display = halt.join_url ? "inline-block" : "none";
+      el("headed").style.display = reminder && halt.modality === "physical" ? "inline-block" : "none";
+      el("in").style.display = reminder ? "none" : "inline-block";
+      el("dismiss").style.display = reminder ? "inline-block" : "none";
+      el("typebox").style.display = reminder && !halt.confirmed ? "flex" : "none";
+    }
+    async function ackReminder(action, kind, modality) {
+      await api(`/api/reminders/${halt.id}/ack`, {
+        method: "POST",
+        body: JSON.stringify({ action, kind, modality }),
+      });
     }
     el("join").onclick = async () => {
       if (!halt) return;
-      await api(`/api/meetings/${halt.id}/ack`, { method: "POST", body: JSON.stringify({ action: "join" }) });
+      if (halt.halt_kind === "reminder") await ackReminder("join");
+      else await api(`/api/meetings/${halt.id}/ack`, { method: "POST", body: JSON.stringify({ action: "join" }) });
       if (halt.join_url) window.open(halt.join_url, "_blank");
       location.href = "/";
     };
+    el("headed").onclick = async () => { await ackReminder("headed"); location.href = "/"; };
     el("in").onclick = async () => {
-      if (!halt) return;
       await api(`/api/meetings/${halt.id}/ack`, { method: "POST", body: JSON.stringify({ action: "im_in" }) });
       location.href = "/";
     };
+    el("dismiss").onclick = async () => { await ackReminder("dismiss"); location.href = "/"; };
+    el("confirm").onclick = async () => { await ackReminder("confirm", halt.kind, halt.modality); await tick(); };
+    document.body.addEventListener("click", async (e) => {
+      const b = e.target;
+      if (!b.dataset.k || !halt) return;
+      await ackReminder("change", b.dataset.k, b.dataset.m);
+      await tick();
+    });
     tick();
     setInterval(tick, 4000);
   </script>

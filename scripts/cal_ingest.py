@@ -35,8 +35,9 @@ def main() -> None:
         for row in rows:
             row["start_at"] = to_z(row["start_at"])
             row["end_at"] = to_z(row["end_at"])
-            if not row.get("join_url"):
-                row["join_url"] = None
+            for key in ("join_url", "location", "notes"):
+                if not row.get(key):
+                    row[key] = None
             client.post(f"{TIMLESS}/api/meetings", json=row)
             n += 1
     print(f"upserted {n} meetings")

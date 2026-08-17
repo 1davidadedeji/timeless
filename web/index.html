@@ -78,7 +78,9 @@
             </div></div>`).join("")
         : "<p>None pending.</p>";
       el("opps").innerHTML = t.opportunities.length
-        ? "<ul>" + t.opportunities.map((o) => `<li><span class="${o.state}">${o.state}</span> — <a href="${o.url}">${o.role || o.url}</a></li>`).join("") + "</ul>"
+        ? t.opportunities.map((o) => `<div><span class="${o.state}">${o.kind || "internship"} · ${o.state}</span> — <a href="${o.url}">${o.role || o.url}</a>
+            <div class="row">${["applied","shortlisted","interview","waiting","offer","rejected","skipped"].map((s) =>
+              `<button class="ghost" data-opp="${o.id}" data-state="${s}">${s}</button>`).join("")}</div></div>`).join("")
         : "<p>No postings yet.</p>";
       el("mail").innerHTML = t.mail.length
         ? "<ul>" + t.mail.map((m) => `<li>${m.classification}: ${m.subject}</li>`).join("") + "</ul>"
@@ -104,6 +106,10 @@
       const t = e.target;
       if (t.dataset.act && t.dataset.id) {
         await api(`/api/approvals/${t.dataset.id}/${t.dataset.act}`, { method: "POST" });
+        await refresh();
+      }
+      if (t.dataset.opp && t.dataset.state) {
+        await api(`/api/opportunities/${t.dataset.opp}/state`, { method: "POST", body: JSON.stringify({ state: t.dataset.state }) });
         await refresh();
       }
       if (t.dataset.done) {

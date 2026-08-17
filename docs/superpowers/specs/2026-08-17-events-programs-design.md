@@ -31,6 +31,8 @@ One SQLite row per fire (`event_uid`, `purpose`, `due_at`, `acked_at`). Overlay 
 
 Deadlines from notes (`deadline`, `submit by`, `applications close`) or `deadline_at` on the program. Presentation from `demo` / `pitch` / `presentation` / `judging` timed events. No guessed 4 h fire without a timestamp.
 
+Mail.app subjects (and Calendar) both feed programs: hackathon/conference/job language upserts `opportunities` and, if a date is in the subject, a `mail:` calendar row so reminders fire even when it was never on Calendar.app.
+
 ## Programs
 
 `opportunities` stays one list. Add `kind`: `internship`, `hackathon`, `conference`, `other`. States: `seen`, `applied`, `shortlisted`, `interview`, `waiting`, `offer`, `rejected`, `skipped`, `ignored`. Automation still writes states only via `pending_approvals`. Overlay does not change program status.

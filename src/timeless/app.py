@@ -41,6 +41,19 @@ class MeetingIn(BaseModel):
     start_at: str
     end_at: str
     join_url: str | None = None
+    location: str | None = None
+    notes: str | None = None
+
+
+class ReminderAckIn(BaseModel):
+    action: str
+    kind: str | None = None
+    modality: str | None = None
+
+
+class OppStateIn(BaseModel):
+    state: str
+    kind: str | None = None
 
 
 class AckIn(BaseModel):
@@ -164,6 +177,20 @@ def create_app(db_path: str | None = None) -> FastAPI:
     @app.post("/api/meetings")
     def add_meeting(body: MeetingIn):
         return store.upsert_meeting(**body.model_dump())
+
+    @app.post("/api/reminders/{reminder_id}/ack")
+    def reminder_ack(reminder_id: int, body: ReminderAckIn):
+        try:
+            return store.ack_reminder(reminder_id, body.action, body.kind, body.modality)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/opportunities/{opp_id}/state")
+    def opp_state(opp_id: int, body: OppStateIn):
+        try:
+            return store.set_opportunity_state(opp_id, body.state, body.kind)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/meetings/{meeting_id}/ack")
     def ack(meeting_id: int, body: AckIn):

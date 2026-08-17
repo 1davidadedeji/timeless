@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS opportunities (
     company TEXT,
     role TEXT,
     url TEXT,
-    state TEXT NOT NULL CHECK (state IN ('seen','applied','skipped','waiting','ignored')),
+    state TEXT NOT NULL CHECK (state IN ('seen','applied','shortlisted','interview','waiting','offer','rejected','skipped','ignored')),
+    kind TEXT NOT NULL DEFAULT 'internship',
     deadline_at TEXT,
     source TEXT,
     created_at TEXT NOT NULL,
@@ -63,8 +64,22 @@ CREATE TABLE IF NOT EXISTS meetings (
     start_at TEXT NOT NULL,
     end_at TEXT NOT NULL,
     join_url TEXT,
+    location TEXT,
+    notes TEXT,
+    kind TEXT,
+    modality TEXT,
+    confirmed INTEGER NOT NULL DEFAULT 0,
     ack TEXT CHECK (ack IN ('join','im_in','missed') OR ack IS NULL),
     acked_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS reminders (
+    id INTEGER PRIMARY KEY,
+    event_uid TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    due_at TEXT NOT NULL,
+    acked_at TEXT,
+    UNIQUE (event_uid, purpose)
 );
 
 CREATE TABLE IF NOT EXISTS mail_actions (
@@ -106,5 +121,53 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    migrate(conn)
     conn.commit()
     return conn
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    opp_sql = conn.execute("SELECT sql FROM sqlite_master WHERE name='opportunities'").fetchone()
+    if opp_sql and "shortlisted" not in (opp_sql["sql"] or ""):
+        conn.executescript(
+            """
+            CREATE TABLE opportunities_mig (
+                id INTEGER PRIMARY KEY,
+                company TEXT,
+                role TEXT,
+                url TEXT,
+                state TEXT NOT NULL CHECK (state IN ('seen','applied','shortlisted','interview','waiting','offer','rejected','skipped','ignored')),
+                kind TEXT NOT NULL DEFAULT 'internship',
+                deadline_at TEXT,
+                source TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO opportunities_mig(id, company, role, url, state, kind, deadline_at, source, created_at, updated_at)
+            SELECT id, company, role, url, state, 'internship', deadline_at, source, created_at, updated_at FROM opportunities;
+            DROP TABLE opportunities;
+            ALTER TABLE opportunities_mig RENAME TO opportunities;
+            """
+        )
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(meetings)")}
+    for name, ddl in (
+        ("location", "ALTER TABLE meetings ADD COLUMN location TEXT"),
+        ("notes", "ALTER TABLE meetings ADD COLUMN notes TEXT"),
+        ("kind", "ALTER TABLE meetings ADD COLUMN kind TEXT"),
+        ("modality", "ALTER TABLE meetings ADD COLUMN modality TEXT"),
+        ("confirmed", "ALTER TABLE meetings ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0"),
+    ):
+        if name not in cols:
+            conn.execute(ddl)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY,
+            event_uid TEXT NOT NULL,
+            purpose TEXT NOT NULL,
+            due_at TEXT NOT NULL,
+            acked_at TEXT,
+            UNIQUE (event_uid, purpose)
+        )
+        """
+    )
