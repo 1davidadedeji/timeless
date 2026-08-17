@@ -90,8 +90,15 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     last_seen TEXT NOT NULL,
     detail TEXT
 );
-"""
 
+CREATE TABLE IF NOT EXISTS daily_recaps (
+    day TEXT PRIMARY KEY,
+    cards TEXT NOT NULL,
+    phone_synced INTEGER NOT NULL DEFAULT 0,
+    generated_at TEXT NOT NULL,
+    acked_at TEXT
+);
+"""
 
 def connect(path: str | Path) -> sqlite3.Connection:
     path = Path(path)
