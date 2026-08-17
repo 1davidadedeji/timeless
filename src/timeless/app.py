@@ -11,7 +11,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from timeless.clock import day_key, due_recap_day, zone
 from timeless.hands import parse, run as run_hands
+from timeless.recap import ensure_recap
 from timeless.store import Store
 
 WEB = Path(__file__).resolve().parents[2] / "web"
@@ -86,10 +88,18 @@ def create_app(db_path: str | None = None) -> FastAPI:
     def today():
         store.close_elapsed_meetings()
         store.expire_approvals()
-        plan = store.get_plan()
+        now_day = day_key()
+        recap = None
+        if store.needs_recap():
+            recap = ensure_recap(store, do_pull=os.environ.get("PYTEST_CURRENT_TEST") is None)
+        plan = store.get_plan(now_day)
         return {
             "plan": plan,
+            "day": now_day,
+            "tz": str(zone()),
             "needs_gate": plan is None,
+            "needs_recap": store.needs_recap(),
+            "recap": recap or store.get_recap(due_recap_day()),
             "halt": store.active_halt(),
             "opportunities": store.list_opportunities(),
             "approvals": store.list_approvals(),
@@ -97,8 +107,16 @@ def create_app(db_path: str | None = None) -> FastAPI:
             "meetings": store.list_meetings(),
             "mail": store.list_mail_actions(),
             "heartbeats": store.heartbeats(),
+            "heatmap": store.heatmap(),
             "brain": "online",
         }
+
+    @app.post("/api/recap/ack")
+    def recap_ack():
+        try:
+            return store.ack_recap()
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/plan")
     def save_plan(body: PlanIn):
@@ -231,9 +249,9 @@ def create_app(db_path: str | None = None) -> FastAPI:
         def gate():
             return FileResponse(WEB / "gate.html")
 
-        @app.get("/halt")
-        def halt():
-            return FileResponse(WEB / "halt.html")
+        @app.get("/recap")
+        def recap_page():
+            return FileResponse(WEB / "recap.html")
 
         app.mount("/static", StaticFiles(directory=WEB), name="static")
 
