@@ -70,6 +70,8 @@ final class OverlayController: NSObject, NSApplicationDelegate, WKNavigationDele
             DispatchQueue.main.async {
                 if json["halt"] is [String: Any] {
                     self.present("/halt")
+                } else if json["needs_recap"] as? Bool ?? false {
+                    self.present("/recap")
                 } else if json["needs_gate"] as? Bool ?? true {
                     self.present("/gate")
                 } else {
