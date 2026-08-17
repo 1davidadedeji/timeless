@@ -11,6 +11,10 @@
     <h1>Timeless</h1>
     <p class="sub" id="status">Loading…</p>
     <div class="grid">
+      <section class="card" style="grid-column:1/-1">
+        <h2>Year</h2>
+        <div id="heat"></div>
+      </section>
       <section class="card">
         <h2>Today</h2>
         <div id="plan"></div>
@@ -52,8 +56,17 @@
     async function refresh() {
       const t = await api("/api/today");
       if (t.halt) { location.href = "/halt"; return; }
+      if (t.needs_recap) { location.href = "/recap"; return; }
       if (t.needs_gate) { location.href = "/gate"; return; }
-      el("status").textContent = "Brain online. Plan locked for today.";
+      el("status").textContent = t.brain === "online"
+        ? `Brain online · ${t.day} ${t.tz}`
+        : "Brain offline";
+      const heat = (t.heatmap || []).map((d) => {
+        const n = d.count || 0;
+        const lvl = n === 0 ? 0 : n < 3 ? 1 : n < 8 ? 2 : n < 20 ? 3 : 4;
+        return `<i title="${d.day}: ${n}" data-lvl="${lvl}"></i>`;
+      }).join("");
+      el("heat").innerHTML = `<div class="heat">${heat}</div>`;
       const blocks = (t.plan.timeline || []).map((b) => `${b.start || ""}–${b.end || ""} ${b.task}`).join("<br>");
       el("plan").innerHTML = `<p>${t.plan.outcomes}</p><p>${blocks}</p>`;
       el("approvals").innerHTML = t.approvals.length
