@@ -35,4 +35,17 @@ ul { padding-left: 1.1rem; margin: 0; }
 li { margin: 0.35rem 0; }
 textarea { width: 100%; min-height: 90px; }
 .chat { display: flex; flex-direction: column; gap: 0.5rem; min-height: 180px; }
-#log { white-space: pre-wrap; color: var(--muted); font-size: 0.95rem; }
+#heat { overflow-x: auto; }
+.heat {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 10px);
+  grid-auto-columns: 10px;
+  gap: 3px;
+  padding: 4px 0 8px;
+}
+.heat i { width: 10px; height: 10px; background: #161616; display: block; }
+.heat i[data-lvl="1"] { background: #3d3418; }
+.heat i[data-lvl="2"] { background: #7a6428; }
+.heat i[data-lvl="3"] { background: #c4a35a; }
+.heat i[data-lvl="4"] { background: #f3ead8; }
