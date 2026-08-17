@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from timeless.clock import day_key, due_recap_day, utc_now
 from timeless.db import connect
 from timeless.ingest import classify_screen_text, looks_like_job_url
 from timeless.praise import praise_for
@@ -13,7 +14,7 @@ MEETING_ACKS = frozenset({"join", "im_in"})
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return utc_now()
 
 
 def _iso(dt: datetime | None = None) -> str:
@@ -21,7 +22,7 @@ def _iso(dt: datetime | None = None) -> str:
 
 
 def _day(dt: datetime | None = None) -> str:
-    return (dt or _now()).strftime("%Y-%m-%d")
+    return day_key(dt)
 
 
 def row_to_dict(row) -> dict[str, Any]:
@@ -405,3 +406,80 @@ class Store:
 
     def needs_gate(self, day: str | None = None) -> bool:
         return self.get_plan(day) is None
+
+    def get_recap(self, day: str) -> dict[str, Any] | None:
+        row = self.conn.execute("SELECT * FROM daily_recaps WHERE day=?", (day,)).fetchone()
+        if not row:
+            return None
+        data = row_to_dict(row)
+        data["cards"] = json.loads(data["cards"])
+        data["phone_synced"] = bool(data["phone_synced"])
+        return data
+
+    def save_recap(self, day: str, cards: list[dict], phone_synced: bool) -> dict[str, Any]:
+        payload = json.dumps(cards)
+        now = _iso()
+        self.conn.execute(
+            """
+            INSERT INTO daily_recaps(day, cards, phone_synced, generated_at, acked_at)
+            VALUES (?, ?, ?, ?, NULL)
+            ON CONFLICT(day) DO UPDATE SET
+              cards=excluded.cards,
+              phone_synced=excluded.phone_synced,
+              generated_at=excluded.generated_at
+            WHERE daily_recaps.acked_at IS NULL
+            """,
+            (day, payload, 1 if phone_synced else 0, now),
+        )
+        self.conn.commit()
+        row = self.get_recap(day)
+        if row is None:
+            raise ValueError("recap missing")
+        return row
+
+    def ack_recap(self, day: str | None = None, now: datetime | None = None) -> dict[str, Any]:
+        day = day or due_recap_day(now)
+        row = self.get_recap(day)
+        if not row:
+            raise ValueError("unknown recap")
+        if row.get("acked_at"):
+            return row
+        self.conn.execute("UPDATE daily_recaps SET acked_at=? WHERE day=?", (_iso(now), day))
+        self.conn.commit()
+        recap = self.get_recap(day)
+        if recap is None:
+            raise ValueError("unknown recap")
+        return recap
+
+    def needs_recap(self, now: datetime | None = None) -> bool:
+        day = due_recap_day(now)
+        row = self.get_recap(day)
+        return row is None or not row.get("acked_at")
+
+    def events_on_day(self, day: str) -> list[dict[str, Any]]:
+        out = []
+        for r in self.conn.execute("SELECT * FROM events ORDER BY ts"):
+            data = row_to_dict(r)
+            ts = datetime.strptime(data["ts"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            if day_key(ts) != day:
+                continue
+            if data.get("payload"):
+                data["payload"] = json.loads(data["payload"])
+            out.append(data)
+        return out
+
+    def heatmap(self, weeks: int = 53) -> list[dict[str, Any]]:
+        counts: dict[str, int] = {}
+        for r in self.conn.execute("SELECT ts FROM events"):
+            ts = datetime.strptime(r["ts"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            key = day_key(ts)
+            counts[key] = counts.get(key, 0) + 1
+        loc = datetime.strptime(day_key(), "%Y-%m-%d")
+        start = loc - timedelta(days=weeks * 7 - 1)
+        days = []
+        cur = start
+        while cur <= loc:
+            key = cur.strftime("%Y-%m-%d")
+            days.append({"day": key, "count": counts.get(key, 0)})
+            cur += timedelta(days=1)
+        return days
