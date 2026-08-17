@@ -1,6 +1,14 @@
 async function api(path, opts) {
-  const r = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+  const token = new URLSearchParams(location.search).get("token") || localStorage.getItem("timeless_token") || "";
+  if (new URLSearchParams(location.search).get("token")) {
+    localStorage.setItem("timeless_token", new URLSearchParams(location.search).get("token"));
+  }
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = "Bearer " + token;
+  const sep = path.includes("?") ? "&" : "?";
+  const url = token && !path.startsWith("http") ? path + sep + "token=" + encodeURIComponent(token) : path;
+  const r = await fetch(url, {
+    headers,
     ...opts,
   });
   const data = await r.json().catch(() => ({}));

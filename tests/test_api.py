@@ -8,6 +8,14 @@ def client(tmp_path):
     return TestClient(app)
 
 
+def test_access_lists_urls_on_loopback(tmp_path):
+    c = client(tmp_path)
+    r = c.get("/api/access")
+    assert r.status_code == 200
+    assert r.json()["loopback"] is True
+    assert any("127.0.0.1" in u for u in r.json()["urls"])
+
+
 def test_today_uses_chicago_and_can_ack_recap(tmp_path):
     c = client(tmp_path)
     t = c.get("/api/today").json()

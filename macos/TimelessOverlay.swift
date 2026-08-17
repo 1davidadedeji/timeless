@@ -16,7 +16,7 @@ final class OverlayController: NSObject, NSApplicationDelegate, WKNavigationDele
     var isBlocking = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        NSApp.setActivationPolicy(.accessory)
         let screen = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         window = KeyableWindow(
             contentRect: screen,
@@ -30,6 +30,7 @@ final class OverlayController: NSObject, NSApplicationDelegate, WKNavigationDele
         window.backgroundColor = NSColor(calibratedRed: 0.05, green: 0.06, blue: 0.07, alpha: 1)
         window.ignoresMouseEvents = false
         window.acceptsMouseMovedEvents = true
+        window.hidesOnDeactivate = false
 
         let config = WKWebViewConfiguration()
         config.preferences.isElementFullscreenEnabled = false
@@ -38,9 +39,7 @@ final class OverlayController: NSObject, NSApplicationDelegate, WKNavigationDele
         web.navigationDelegate = self
         web.setValue(false, forKey: "drawsBackground")
         window.contentView = web
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeFirstResponder(web)
+        window.orderOut(nil)
 
         poll()
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
@@ -78,6 +77,8 @@ final class OverlayController: NSObject, NSApplicationDelegate, WKNavigationDele
                     self.isBlocking = false
                     self.currentPath = ""
                     self.window.orderOut(nil)
+                    NSApp.setActivationPolicy(.accessory)
+                    NSApp.hide(nil)
                 }
             }
         }.resume()
@@ -86,6 +87,7 @@ final class OverlayController: NSObject, NSApplicationDelegate, WKNavigationDele
     func present(_ path: String) {
         let wasHidden = !window.isVisible
         isBlocking = true
+        NSApp.setActivationPolicy(.accessory)
         if wasHidden {
             window.orderFrontRegardless()
             window.makeKeyAndOrderFront(nil)

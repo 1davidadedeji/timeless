@@ -47,6 +47,9 @@ fi
 if [ -f "$CONF" ] && ! wireless_connected; then
   # shellcheck disable=SC1090
   source "$CONF"
+  if [ -n "${ADB_PAIR_HOST:-}" ] && [ -n "${ADB_PAIR_PORT:-}" ] && [ -n "${ADB_PAIR_CODE:-}" ]; then
+    adb pair "${ADB_PAIR_HOST}:${ADB_PAIR_PORT}" "${ADB_PAIR_CODE}" >/dev/null 2>&1 || true
+  fi
   if [ -n "${ADB_HOST:-}" ]; then
     connect_host "${ADB_HOST}" "${ADB_PORT:-5555}" || echo "wireless ${ADB_HOST}:${ADB_PORT:-5555} not reachable"
   fi

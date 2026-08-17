@@ -6,11 +6,12 @@ import re
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from timeless.access import advertised_hosts, is_loopback, token_ok, ui_token
 from timeless.clock import day_key, due_recap_day, zone
 from timeless.hands import parse, run as run_hands
 from timeless.recap import ensure_recap
@@ -83,6 +84,29 @@ def create_app(db_path: str | None = None) -> FastAPI:
     store = Store(db_path)
     app = FastAPI(title="Timeless")
     app.state.store = store
+
+    @app.middleware("http")
+    async def require_token(request: Request, call_next):
+        host = request.client.host if request.client else ""
+        provided = request.headers.get("authorization") or ""
+        if provided.lower().startswith("bearer "):
+            provided = provided[7:].strip()
+        else:
+            provided = request.query_params.get("token")
+        if not token_ok(provided, host):
+            return JSONResponse({"detail": "token required"}, status_code=401)
+        return await call_next(request)
+
+    @app.get("/api/access")
+    def access(request: Request):
+        host = request.client.host if request.client else ""
+        port = int(os.environ.get("TIMELESS_PORT", "8787"))
+        token = ui_token() if is_loopback(host) else None
+        urls = []
+        if token:
+            for h in advertised_hosts():
+                urls.append(f"http://{h}:{port}/?token={token}")
+        return {"loopback": is_loopback(host), "urls": urls, "tz": str(zone())}
 
     @app.get("/api/today")
     def today():
@@ -249,6 +273,10 @@ def create_app(db_path: str | None = None) -> FastAPI:
         def gate():
             return FileResponse(WEB / "gate.html")
 
+        @app.get("/halt")
+        def halt():
+            return FileResponse(WEB / "halt.html")
+
         @app.get("/recap")
         def recap_page():
             return FileResponse(WEB / "recap.html")
@@ -305,6 +333,6 @@ def _offline_chat(message: str, snapshot: dict) -> str:
 def main() -> None:
     import uvicorn
 
-    host = os.environ.get("TIMELESS_HOST", "127.0.0.1")
+    host = os.environ.get("TIMELESS_HOST", "0.0.0.0")
     port = int(os.environ.get("TIMELESS_PORT", "8787"))
     uvicorn.run("timeless.app:create_app", factory=True, host=host, port=port)

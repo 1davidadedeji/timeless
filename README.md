@@ -46,6 +46,12 @@ Rebuild later with `./scripts/build-screenpipe.sh`.
 
 Calendar.app (EventKit) and Mail.app ingest on a timer. Allow Calendar and Automation when macOS asks. Dashboard: http://127.0.0.1:8787 — Chicago timezone, nightly recap overlay at 23:55.
 
+Phone: brain binds `0.0.0.0:8787` with a token (loopback is open). Copy the LAN/Tailscale URL from Sensors. Overlay stays on localhost and **does not use the Dock** (agent policy).
+
+Wireless ADB after reboot: in `~/Library/Application Support/Timeless/phone-adb.conf` set `ADB_PAIR_HOST`, `ADB_PAIR_PORT`, `ADB_PAIR_CODE` from Wireless debugging → Pair with pairing code. The pull job retries connect + mDNS.
+
+Chrome URLs: `./scripts/install-chrome-aw.sh` then click Add.
+
 ## Dev
 
 ```bash

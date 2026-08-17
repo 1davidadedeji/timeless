@@ -20,13 +20,16 @@ SCRIPT = r'''
 tell application "Mail"
   set out to ""
   try
-    set theMsgs to (messages of inbox whose read status is false)
-    set lim to 40
-    if (count of theMsgs) < lim then set lim to (count of theMsgs)
+    set lim to 12
+    set n to count of messages of inbox
+    if n < 1 then return out
+    if n < lim then set lim to n
     repeat with i from 1 to lim
-      set m to item i of theMsgs
+      set m to message i of inbox
       set out to out & (id of m as text) & tab & (subject of m) & tab & (sender of m) & linefeed
     end repeat
+  on error
+    return out
   end try
   return out
 end tell
@@ -35,11 +38,14 @@ end tell
 
 def main() -> None:
     try:
-        raw = subprocess.check_output(["osascript", "-e", SCRIPT], timeout=30, stderr=subprocess.DEVNULL)
+        raw = subprocess.check_output(["osascript", "-e", SCRIPT], timeout=8, stderr=subprocess.DEVNULL)
     except Exception as exc:
         with httpx.Client(timeout=10) as client:
-            client.post(f"{TIMLESS}/api/heartbeat", json={"sensor": "mac_mail", "detail": f"mail.app: {exc}"})
-        print(f"mail.app unavailable: {exc}")
+            client.post(
+                f"{TIMLESS}/api/heartbeat",
+                json={"sensor": "mac_mail", "detail": "Mail.app needs Automation permission (System Settings → Privacy → Automation)"},
+            )
+        print(f"mail.app unavailable: {type(exc).__name__}")
         return
     lines = raw.decode("utf-8", "replace").strip().splitlines()
     added = 0

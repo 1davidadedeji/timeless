@@ -91,6 +91,13 @@
       el("heart").innerHTML = t.heartbeats.length
         ? "<ul>" + t.heartbeats.map((h) => `<li>${h.sensor}: ${h.last_seen}</li>`).join("") + "</ul>"
         : "<p>No sensors yet. ActivityWatch and the phone observer will show up here.</p>";
+      try {
+        const a = await api("/api/access");
+        if (a.urls && a.urls.length) {
+          el("heart").innerHTML += "<p>Phone: open the Tailscale/LAN link from this Mac’s access list (token in the URL).</p><ul>" +
+            a.urls.filter((u) => !u.includes("127.0.0.1")).map((u) => `<li><code>${u}</code></li>`).join("") + "</ul>";
+        }
+      } catch (_) {}
     }
 
     document.body.addEventListener("click", async (e) => {
