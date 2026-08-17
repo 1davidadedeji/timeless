@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.timeless.cal-ingest</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>VENV/bin/python</string>
+    <string>ROOT/scripts/cal_ingest.py</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>120</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>HOME/Library/Application Support/Timeless/logs/cal-ingest.log</string>
+  <key>StandardErrorPath</key>
+  <string>HOME/Library/Application Support/Timeless/logs/cal-ingest.err</string>
+</dict>
+</plist>
