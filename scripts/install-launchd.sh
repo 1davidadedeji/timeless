@@ -18,6 +18,11 @@ if [ ! -x "$ROOT/dist/TimelessOverlay" ]; then
 fi
 cp "$ROOT/dist/TimelessOverlay" "$SUPPORT/bin/TimelessOverlay"
 chmod +x "$SUPPORT/bin/TimelessOverlay"
+if [ ! -x "$ROOT/dist/TimelessCal" ]; then
+  swiftc -O -o "$ROOT/dist/TimelessCal" "$ROOT/macos/TimelessCal.swift" -framework EventKit -framework Foundation
+fi
+cp "$ROOT/dist/TimelessCal" "$SUPPORT/bin/TimelessCal"
+chmod +x "$SUPPORT/bin/TimelessCal"
 
 render() {
   local src="$1" dst="$2"
@@ -30,15 +35,17 @@ render "$ROOT/macos/launchd/com.timeless.aw-ingest.plist.tmpl" "$DEST/com.timele
 render "$ROOT/macos/launchd/com.timeless.screenpipe.plist.tmpl" "$DEST/com.timeless.screenpipe.plist"
 render "$ROOT/macos/launchd/com.timeless.sp-ingest.plist.tmpl" "$DEST/com.timeless.sp-ingest.plist"
 render "$ROOT/macos/launchd/com.timeless.phone-aw.plist.tmpl" "$DEST/com.timeless.phone-aw.plist"
+render "$ROOT/macos/launchd/com.timeless.cal-ingest.plist.tmpl" "$DEST/com.timeless.cal-ingest.plist"
+render "$ROOT/macos/launchd/com.timeless.mail-ingest.plist.tmpl" "$DEST/com.timeless.mail-ingest.plist"
 
-for label in com.timeless.brain com.timeless.overlay com.timeless.aw-ingest com.timeless.screenpipe com.timeless.sp-ingest com.timeless.phone-aw; do
+for label in com.timeless.brain com.timeless.overlay com.timeless.aw-ingest com.timeless.screenpipe com.timeless.sp-ingest com.timeless.phone-aw com.timeless.cal-ingest com.timeless.mail-ingest; do
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
 done
 pkill -f TimelessOverlay 2>/dev/null || true
 pkill -f '/Timeless/venv/bin/timeless' 2>/dev/null || true
 sleep 1
 
-for label in com.timeless.brain com.timeless.overlay com.timeless.aw-ingest com.timeless.screenpipe com.timeless.sp-ingest com.timeless.phone-aw; do
+for label in com.timeless.brain com.timeless.overlay com.timeless.aw-ingest com.timeless.screenpipe com.timeless.sp-ingest com.timeless.phone-aw com.timeless.cal-ingest com.timeless.mail-ingest; do
   launchctl bootstrap "gui/$(id -u)" "$DEST/${label}.plist"
   launchctl enable "gui/$(id -u)/$label"
   launchctl kickstart -k "gui/$(id -u)/$label"
