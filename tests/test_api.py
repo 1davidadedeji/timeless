@@ -8,12 +8,19 @@ def client(tmp_path):
     return TestClient(app)
 
 
-def test_today_needs_gate(tmp_path):
+def test_today_uses_chicago_and_can_ack_recap(tmp_path):
     c = client(tmp_path)
-    r = c.get("/api/today")
-    assert r.status_code == 200
-    assert r.json()["needs_gate"] is True
-    assert r.json()["brain"] == "online"
+    t = c.get("/api/today").json()
+    assert t["tz"] == "America/Chicago"
+    assert "heatmap" in t
+    assert t["needs_recap"] is True
+    assert t["needs_gate"] is True
+    assert t["brain"] == "online"
+    ack = c.post("/api/recap/ack")
+    assert ack.status_code == 200
+    later = c.get("/api/today").json()
+    assert later["needs_recap"] is False
+    assert later["needs_gate"] is True
 
 
 def test_plan_and_gate(tmp_path):
