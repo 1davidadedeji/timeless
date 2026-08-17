@@ -142,6 +142,64 @@ def test_meeting_ack_and_miss(store):
     assert row["ack"] == "missed"
 
 
+def test_ingest_picks_meet_from_notes_not_maps(store):
+    m = store.upsert_meeting(
+        "cal-1",
+        "Standup",
+        "2026-08-20T18:00:00Z",
+        "2026-08-20T19:00:00Z",
+        join_url="https://maps.google.com/?q=office",
+        notes="Join: https://meet.google.com/abc-defg-hij maps https://maps.google.com/?q=1",
+    )
+    assert m["join_url"] == "https://meet.google.com/abc-defg-hij"
+
+
+def test_mail_card_fills_empty_join(store):
+    store.add_mail_action(
+        "mid-meet",
+        "gmail",
+        "Acme Interview Loop",
+        "interview",
+        "https://zoom.us/j/555",
+    )
+    m = store.upsert_meeting(
+        "cal-2",
+        "Acme Interview Loop",
+        "2026-08-21T18:00:00Z",
+        "2026-08-21T19:00:00Z",
+        join_url=None,
+        notes="Bring resume",
+    )
+    assert m["join_url"] == "https://zoom.us/j/555"
+
+
+def test_patched_join_not_overwritten(store):
+    m = store.upsert_meeting(
+        "cal-3",
+        "Standup",
+        "2026-08-20T18:00:00Z",
+        "2026-08-20T19:00:00Z",
+        notes="https://meet.google.com/old-link",
+    )
+    store.patch_meeting(m["id"], join_url="https://zoom.us/j/locked")
+    again = store.upsert_meeting(
+        "cal-3",
+        "Standup",
+        "2026-08-20T18:00:00Z",
+        "2026-08-20T19:00:00Z",
+        notes="https://meet.google.com/new-link",
+    )
+    assert again["join_url"] == "https://zoom.us/j/locked"
+    assert again["join_locked"] == 1
+
+
+def test_patch_opportunity_fields(store):
+    o = store.upsert_opportunity(url="https://example.com/job", role="Intern")
+    out = store.patch_opportunity(o["id"], role="SWE intern", kind="internship", url="https://example.com/job2")
+    assert out["role"] == "SWE intern"
+    assert out["url"] == "https://example.com/job2"
+
+
 def test_ritual_done_praise(store):
     rid = store.add_ritual("LeetCode", launch_url="https://leetcode.com")
     out = store.complete_ritual(rid, day="2026-08-15")

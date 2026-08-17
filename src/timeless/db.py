@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS meetings (
     start_at TEXT NOT NULL,
     end_at TEXT NOT NULL,
     join_url TEXT,
+    join_locked INTEGER NOT NULL DEFAULT 0,
     location TEXT,
     notes TEXT,
     kind TEXT,
@@ -156,6 +157,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         ("kind", "ALTER TABLE meetings ADD COLUMN kind TEXT"),
         ("modality", "ALTER TABLE meetings ADD COLUMN modality TEXT"),
         ("confirmed", "ALTER TABLE meetings ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0"),
+        ("join_locked", "ALTER TABLE meetings ADD COLUMN join_locked INTEGER NOT NULL DEFAULT 0"),
     ):
         if name not in cols:
             conn.execute(ddl)

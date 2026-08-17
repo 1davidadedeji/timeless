@@ -5,24 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Timeless recap</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #070707; color: #f3ead8; font-family: "Arial Narrow", "Helvetica Neue", sans-serif; }
-    .stage { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    html, body { margin: 0; height: 100%; background: var(--bg, #070707); color: #f3ead8; font-family: "Arial Narrow", "Helvetica Neue", sans-serif; }
+    .stage { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: auto; }
     .ticket {
-      width: min(340px, 92vw); min-height: 420px; border: 1px solid #c4a35a; padding: 28px 24px 22px;
-      display: flex; flex-direction: column; box-shadow: 0 0 0 8px #070707, 0 0 0 9px #c4a35a22;
+      position: relative; z-index: 1;
+      width: min(340px, 92vw); min-height: 420px; border: 1px solid var(--accent, #c4a35a); padding: 28px 24px 22px;
+      display: flex; flex-direction: column; box-shadow: 0 0 0 8px var(--bg, #070707), 0 0 0 9px color-mix(in srgb, var(--accent, #c4a35a) 14%, transparent);
     }
-    .k { font-size: 11px; letter-spacing: .42em; text-transform: uppercase; color: #c4a35a; }
+    .k { font-size: 11px; letter-spacing: .42em; text-transform: uppercase; color: var(--accent, #c4a35a); }
     h1 { font-weight: 400; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; margin: 36px 0 8px; }
     .stat { font-size: 72px; line-height: .9; font-weight: 700; margin: 8px 0 20px; letter-spacing: -.04em; }
-    .bar { height: 1px; background: linear-gradient(90deg, #c4a35a, transparent); margin: 0 0 16px; }
-    p { margin: 0; color: #b9b09a; font-size: 15px; line-height: 1.4; flex: 1; }
+    .bar { height: 1px; background: linear-gradient(90deg, var(--accent, #c4a35a), transparent); margin: 0 0 16px; }
+    p { margin: 0; color: #b9b09a; font-size: 15px; line-height: 1.4; flex: 1; overflow-wrap: anywhere; }
     button {
-      margin-top: 24px; background: #c4a35a; color: #100c06; border: 0; padding: 12px 16px;
+      margin-top: 24px; background: var(--accent, #c4a35a); color: #100c06; border: 0; padding: 12px 16px;
       font: inherit; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
     }
     .dots { display: flex; gap: 6px; margin-bottom: 18px; }
     .dots i { width: 6px; height: 6px; border-radius: 50%; background: #333; display: block; }
-    .dots i.on { background: #c4a35a; }
+    .dots i.on { background: var(--accent, #c4a35a); }
   </style>
 </head>
 <body>
@@ -37,6 +38,7 @@
       <button type="button" id="go">Next</button>
     </div>
   </div>
+  <script src="/static/theme.js"></script>
   <script src="/static/app.js"></script>
   <script>
     let cards = [];

@@ -12,8 +12,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from timeless.access import advertised_hosts, is_loopback, token_ok, ui_token
+from timeless.calendar_write import create_calendar_event
 from timeless.clock import day_key, due_recap_day, zone
 from timeless.hands import parse, run as run_hands
+from timeless.local_cmd import apply_local, parse_local
 from timeless.recap import ensure_recap
 from timeless.store import Store
 
@@ -49,6 +51,19 @@ class ReminderAckIn(BaseModel):
     action: str
     kind: str | None = None
     modality: str | None = None
+
+
+class MeetingPatchIn(BaseModel):
+    join_url: str | None = None
+    modality: str | None = None
+    kind: str | None = None
+    title: str | None = None
+
+
+class OppPatchIn(BaseModel):
+    role: str | None = None
+    kind: str | None = None
+    url: str | None = None
 
 
 class OppStateIn(BaseModel):
@@ -177,6 +192,20 @@ def create_app(db_path: str | None = None) -> FastAPI:
     @app.post("/api/meetings")
     def add_meeting(body: MeetingIn):
         return store.upsert_meeting(**body.model_dump())
+
+    @app.patch("/api/meetings/{meeting_id}")
+    def patch_meeting(meeting_id: int, body: MeetingPatchIn):
+        try:
+            return store.patch_meeting(meeting_id, **body.model_dump())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.patch("/api/opportunities/{opp_id}")
+    def patch_opp(opp_id: int, body: OppPatchIn):
+        try:
+            return store.patch_opportunity(opp_id, **body.model_dump())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.post("/api/reminders/{reminder_id}/ack")
     def reminder_ack(reminder_id: int, body: ReminderAckIn):
@@ -320,6 +349,12 @@ def _maybe_do(store: Store, message: str) -> dict | None:
         did = run_hands(intent)
         store.ack_meeting(halt["id"], "join")
         return {"reply": f"Joining {halt['title']}.", "did": did}
+    local = parse_local(message)
+    if local:
+        try:
+            return apply_local(store, local, create_calendar_event)
+        except ValueError as exc:
+            return {"reply": str(exc), "did": None}
     intent = parse(message, store.list_rituals())
     if not intent:
         return None

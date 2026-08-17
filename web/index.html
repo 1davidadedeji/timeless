@@ -8,10 +8,25 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Timeless</h1>
-    <p class="sub" id="status">Loading…</p>
-    <div class="grid">
-      <section class="card" style="grid-column:1/-1">
+    <header class="top top-row">
+      <div>
+        <h1>Timeless</h1>
+        <p class="sub" id="status">Loading…</p>
+      </div>
+      <div class="theme-wrap">
+        <button type="button" class="theme-toggle" id="theme-toggle">Theme</button>
+        <div class="theme-box" id="theme-box">
+          <p class="sub" id="theme-hex">#c4a35a</p>
+          <label>R <input type="range" id="theme-r" min="0" max="255" /></label>
+          <label>G <input type="range" id="theme-g" min="0" max="255" /></label>
+          <label>B <input type="range" id="theme-b" min="0" max="255" /></label>
+          <label><input type="checkbox" id="theme-tint" /> Full tint</label>
+          <button type="button" class="ghost" id="theme-reset">Reset</button>
+        </div>
+      </div>
+    </header>
+    <main class="flow">
+      <section class="card">
         <h2>Year</h2>
         <div id="heat"></div>
       </section>
@@ -20,39 +35,75 @@
         <div id="plan"></div>
       </section>
       <section class="card">
-        <h2>Approvals</h2>
-        <div id="approvals"></div>
+        <h2>Events</h2>
+        <div class="scroll" id="meetings"></div>
       </section>
       <section class="card">
-        <h2>Opportunities</h2>
-        <div id="opps"></div>
+        <h2>Programs</h2>
+        <div class="scroll" id="opps"></div>
       </section>
-      <section class="card">
-        <h2>Mail</h2>
-        <div id="mail"></div>
-      </section>
-      <section class="card">
-        <h2>Rituals</h2>
-        <div id="rituals"></div>
-      </section>
-      <section class="card">
-        <h2>Sensors</h2>
-        <div id="heart"></div>
-      </section>
-    </div>
-    <section class="card" style="margin-top:1rem">
-      <h2>Chat</h2>
-      <div class="chat">
-        <div id="log"></div>
-        <div class="row">
-          <input id="q" style="flex:1" placeholder="open leetcode · open coursera on my phone · what did I do today?" />
-          <button type="button" id="ask">Ask</button>
-        </div>
+      <div class="band">
+        <section class="card">
+          <h2>Approvals</h2>
+          <div class="scroll" id="approvals"></div>
+        </section>
+        <section class="card">
+          <h2>Mail</h2>
+          <div class="scroll" id="mail"></div>
+        </section>
       </div>
-    </section>
+      <div class="band">
+        <section class="card">
+          <h2>Rituals</h2>
+          <div id="rituals"></div>
+        </section>
+        <section class="card">
+          <h2>Sensors</h2>
+          <div class="scroll" id="heart"></div>
+        </section>
+      </div>
+    </main>
   </div>
+  <div class="fab" id="fab">
+    <div class="fab-panel chat">
+      <div id="log"></div>
+      <div class="row">
+        <input id="q" placeholder="add event · plan outcomes · open leetcode" />
+        <button type="button" id="ask">Ask</button>
+      </div>
+    </div>
+    <button type="button" class="fab-btn" id="fab-toggle" aria-label="Chat">+</button>
+  </div>
+  <script src="/static/theme.js"></script>
   <script src="/static/app.js"></script>
   <script>
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    function ago(iso) {
+      if (!iso) return "never";
+      const t = Date.parse(iso.endsWith("Z") ? iso : iso + "Z");
+      if (Number.isNaN(t)) return iso;
+      const s = Math.max(0, (Date.now() - t) / 1000);
+      if (s < 60) return "just now";
+      if (s < 3600) return Math.round(s / 60) + "m ago";
+      if (s < 86400) return Math.round(s / 3600) + "h ago";
+      return Math.round(s / 86400) + "d ago";
+    }
+    function when(iso) {
+      if (!iso) return "";
+      const d = new Date(iso.endsWith("Z") ? iso : iso + "Z");
+      if (Number.isNaN(d.getTime())) return iso;
+      return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    function snippet(payload) {
+      if (!payload || typeof payload !== "object") return "";
+      return Object.entries(payload)
+        .filter(([, v]) => v != null && v !== "")
+        .slice(0, 3)
+        .map(([k, v]) => `${k.replace(/_/g, " ")} ${String(v).slice(0, 72)}`)
+        .join(" · ");
+    }
     async function refresh() {
       const t = await api("/api/today");
       if (t.halt) { location.href = "/halt"; return; }
@@ -64,52 +115,99 @@
       const heat = (t.heatmap || []).map((d) => {
         const n = d.count || 0;
         const lvl = n === 0 ? 0 : n < 3 ? 1 : n < 8 ? 2 : n < 20 ? 3 : 4;
-        return `<i title="${d.day}: ${n}" data-lvl="${lvl}"></i>`;
+        return `<span class="cell" title="${esc(d.day)}: ${n}" data-lvl="${lvl}"></span>`;
       }).join("");
       el("heat").innerHTML = `<div class="heat">${heat}</div>`;
-      const blocks = (t.plan.timeline || []).map((b) => `${b.start || ""}–${b.end || ""} ${b.task}`).join("<br>");
-      el("plan").innerHTML = `<p>${t.plan.outcomes}</p><p>${blocks}</p>`;
+      const blocks = (t.plan.timeline || []).map((b, i) =>
+        `<tr><td><input data-plan="${i}" data-k="start" value="${esc(b.start || "")}" /></td>
+         <td><input data-plan="${i}" data-k="end" value="${esc(b.end || "")}" /></td>
+         <td><input data-plan="${i}" data-k="task" value="${esc(b.task || "")}" /></td></tr>`
+      ).join("");
+      el("plan").innerHTML = `<label>Outcomes</label>
+        <textarea id="outcomes">${esc(t.plan.outcomes)}</textarea>
+        <div class="scroll"><table class="grid-table"><thead><tr><th>Start</th><th>End</th><th>Task</th></tr></thead>
+        <tbody id="plan-rows">${blocks}</tbody></table></div>
+        <div class="row"><button type="button" id="save-plan">Save plan</button></div>`;
+      el("meetings").innerHTML = t.meetings.length
+        ? `<table class="grid-table"><thead><tr><th>When</th><th>Title</th><th>Type</th><th>Join</th></tr></thead><tbody>` +
+          t.meetings.map((m) => `<tr>
+            <td>${esc(when(m.start_at))}</td>
+            <td>${esc(m.title)}</td>
+            <td><select data-meet="${m.id}" data-k="modality">
+              <option value="virtual"${m.modality === "virtual" ? " selected" : ""}>Virtual</option>
+              <option value="physical"${m.modality === "physical" ? " selected" : ""}>In person</option>
+            </select></td>
+            <td>${m.join_url ? `<a href="${esc(m.join_url)}" target="_blank" rel="noopener">Join</a>` : ""}
+              <input data-meet="${m.id}" data-k="join_url" placeholder="paste link" value="${esc(m.join_url || "")}" /></td>
+          </tr>`).join("") + `</tbody></table>`
+        : "<p>No events stored.</p>";
+      el("opps").innerHTML = t.opportunities.length
+        ? `<table class="grid-table"><thead><tr><th>Role</th><th>Kind</th><th>State</th><th>URL</th></tr></thead><tbody>` +
+          t.opportunities.map((o) => `<tr>
+            <td><input data-opp-edit="${o.id}" data-k="role" value="${esc(o.role || "")}" /></td>
+            <td><select data-opp-edit="${o.id}" data-k="kind">
+              ${["internship","hackathon","conference","other"].map((k) =>
+                `<option${o.kind === k ? " selected" : ""}>${k}</option>`).join("")}
+            </select></td>
+            <td><select data-opp="${o.id}" data-state-sel="1">
+              ${["seen","applied","shortlisted","interview","waiting","offer","rejected","skipped","ignored"].map((s) =>
+                `<option${o.state === s ? " selected" : ""}>${s}</option>`).join("")}
+            </select></td>
+            <td><input data-opp-edit="${o.id}" data-k="url" value="${esc(o.url || "")}" /></td>
+          </tr>`).join("") + `</tbody></table><p class="sub">Change a field and it saves.</p>`
+        : "<p>No postings yet.</p>";
       el("approvals").innerHTML = t.approvals.length
-        ? t.approvals.map((a) => `<div><p>${a.kind}</p><pre>${JSON.stringify(a.payload, null, 0)}</pre>
+        ? t.approvals.map((a) => `<div class="item"><span class="chip">${esc(a.kind.replace(/_/g, " "))}</span>
+            <p>${esc(snippet(a.payload))}</p>
             <div class="row">
               <button data-id="${a.id}" data-act="accept">Accept</button>
               <button class="ghost" data-id="${a.id}" data-act="keep">Keep seen</button>
               <button class="ghost" data-id="${a.id}" data-act="reject">Ignore</button>
             </div></div>`).join("")
         : "<p>None pending.</p>";
-      el("opps").innerHTML = t.opportunities.length
-        ? t.opportunities.map((o) => `<div><span class="${o.state}">${o.kind || "internship"} · ${o.state}</span> — <a href="${o.url}">${o.role || o.url}</a>
-            <div class="row">${["applied","shortlisted","interview","waiting","offer","rejected","skipped"].map((s) =>
-              `<button class="ghost" data-opp="${o.id}" data-state="${s}">${s}</button>`).join("")}</div></div>`).join("")
-        : "<p>No postings yet.</p>";
       el("mail").innerHTML = t.mail.length
-        ? "<ul>" + t.mail.map((m) => `<li>${m.classification}: ${m.subject}</li>`).join("") + "</ul>"
+        ? `<table class="grid-table"><thead><tr><th>Type</th><th>Subject</th></tr></thead><tbody>` +
+          t.mail.map((m) => `<tr><td><span class="chip">${esc(m.classification)}</span></td><td>${esc(m.subject)}</td></tr>`).join("") +
+          `</tbody></table>`
         : "<p>No actionable mail cards.</p>";
       el("rituals").innerHTML = t.rituals.length
-        ? t.rituals.map((r) => `<div class="row"><span>${r.name}</span>
-            ${r.launch_url ? `<a href="${r.launch_url}" target="_blank">Open</a>` : ""}
+        ? t.rituals.map((r) => `<div class="row"><span>${esc(r.name)}</span>
+            ${r.launch_url ? `<a href="${esc(r.launch_url)}" target="_blank">Open</a>` : ""}
             <button data-done="${r.id}">Done</button></div>`).join("")
-        : "<p>No rituals pinned. Add via API or a later settings page.</p>";
+        : "<p>No rituals pinned.</p>";
       el("heart").innerHTML = t.heartbeats.length
-        ? "<ul>" + t.heartbeats.map((h) => `<li>${h.sensor}: ${h.last_seen}</li>`).join("") + "</ul>"
-        : "<p>No sensors yet. ActivityWatch and the phone observer will show up here.</p>";
+        ? `<table class="grid-table"><thead><tr><th>Sensor</th><th>Seen</th><th></th></tr></thead><tbody>` +
+          t.heartbeats.map((h) => {
+            const stale = (Date.now() - Date.parse((h.last_seen || "").endsWith("Z") ? h.last_seen : h.last_seen + "Z")) > 30 * 60 * 1000;
+            return `<tr><td>${esc(h.sensor)}</td><td>${esc(ago(h.last_seen))}</td>
+              <td><span class="chip ${stale ? "stale" : "ok"}">${stale ? "stale" : "ok"}</span></td></tr>`;
+          }).join("") + `</tbody></table>`
+        : "<p>No sensors yet.</p>";
       try {
         const a = await api("/api/access");
-        if (a.urls && a.urls.length) {
-          el("heart").innerHTML += "<p>Phone: open the Tailscale/LAN link from this Mac’s access list (token in the URL).</p><ul>" +
-            a.urls.filter((u) => !u.includes("127.0.0.1")).map((u) => `<li><code>${u}</code></li>`).join("") + "</ul>";
+        const remote = (a.urls || []).filter((u) => !u.includes("127.0.0.1"));
+        if (remote.length) {
+          el("heart").innerHTML += "<p class=\"sub\">Phone (LAN/Tailscale)</p><ul>" +
+            remote.map((u) => `<li><code>${esc(u)}</code></li>`).join("") + "</ul>";
         }
       } catch (_) {}
     }
 
+    async function savePlan() {
+      const outcomes = el("outcomes").value;
+      const timeline = [...document.querySelectorAll("#plan-rows tr")].map((tr) => {
+        const inputs = tr.querySelectorAll("input");
+        return { start: inputs[0].value, end: inputs[1].value, task: inputs[2].value };
+      }).filter((b) => b.task.trim());
+      await api("/api/plan", { method: "POST", body: JSON.stringify({ outcomes, timeline }) });
+      await refresh();
+    }
+
     document.body.addEventListener("click", async (e) => {
       const t = e.target;
+      if (t.id === "save-plan") await savePlan();
       if (t.dataset.act && t.dataset.id) {
         await api(`/api/approvals/${t.dataset.id}/${t.dataset.act}`, { method: "POST" });
-        await refresh();
-      }
-      if (t.dataset.opp && t.dataset.state) {
-        await api(`/api/opportunities/${t.dataset.opp}/state`, { method: "POST", body: JSON.stringify({ state: t.dataset.state }) });
         await refresh();
       }
       if (t.dataset.done) {
@@ -118,7 +216,27 @@
         await refresh();
       }
     });
+    document.body.addEventListener("change", async (e) => {
+      const t = e.target;
+      if (t.dataset.meet && t.dataset.k) {
+        const body = {};
+        body[t.dataset.k] = t.value;
+        await api(`/api/meetings/${t.dataset.meet}`, { method: "PATCH", body: JSON.stringify(body) });
+        await refresh();
+      }
+      if (t.dataset.opp && t.dataset.stateSel) {
+        await api(`/api/opportunities/${t.dataset.opp}/state`, { method: "POST", body: JSON.stringify({ state: t.value }) });
+        await refresh();
+      }
+      if (t.dataset.oppEdit && t.dataset.k) {
+        const body = {};
+        body[t.dataset.k] = t.value;
+        await api(`/api/opportunities/${t.dataset.oppEdit}`, { method: "PATCH", body: JSON.stringify(body) });
+        await refresh();
+      }
+    });
 
+    el("fab-toggle").onclick = () => el("fab").classList.toggle("open");
     el("ask").onclick = async () => {
       const message = el("q").value.trim();
       if (!message) return;

@@ -95,6 +95,38 @@ def test_do_open_does_not_send(monkeypatch, tmp_path):
     assert "Opened leetcode" in body["reply"]
 
 
+def test_patch_meeting_locks_join(tmp_path):
+    c = client(tmp_path)
+    m = c.post(
+        "/api/meetings",
+        json={
+            "uid": "m-lock",
+            "title": "Standup",
+            "start_at": "2026-08-20T18:00:00Z",
+            "end_at": "2026-08-20T19:00:00Z",
+            "notes": "https://maps.google.com/?q=x https://meet.google.com/abc",
+        },
+    ).json()
+    assert m["join_url"] == "https://meet.google.com/abc"
+    patched = c.patch(f"/api/meetings/{m['id']}", json={"join_url": "https://zoom.us/j/9"}).json()
+    assert patched["join_url"] == "https://zoom.us/j/9"
+    assert patched["join_locked"] == 1
+
+
+def test_chat_add_event_upserts(monkeypatch, tmp_path):
+    monkeypatch.setattr("timeless.app.create_calendar_event", lambda **kw: {"ok": False, "error": "test skip EventKit"})
+    c = client(tmp_path)
+    r = c.post(
+        "/api/chat",
+        json={"message": "add event Interview 2026-08-20 14:00-15:00 https://meet.google.com/xyz"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "Interview" in body["reply"]
+    meetings = c.get("/api/today").json()["meetings"]
+    assert any(m["title"] == "Interview" and m["join_url"] == "https://meet.google.com/xyz" for m in meetings)
+
+
 def test_chat_queues_send_instead_of_sending(tmp_path):
     c = client(tmp_path)
     r = c.post("/api/chat", json={"message": "send a text to mom"})

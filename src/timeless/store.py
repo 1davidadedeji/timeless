@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from timeless.classify_event import classify_event, looks_like_presentation, looks_like_submission
+from timeless.classify_event import classify_event, looks_like_presentation, looks_like_submission, mail_matches_event, pick_join_url
 from timeless.clock import day_key, due_recap_day, utc_now
 from timeless.db import connect
 from timeless.ingest import classify_screen_text, looks_like_job_url
@@ -202,6 +202,33 @@ class Store:
             raise ValueError("unknown opportunity")
         return row_to_dict(row)
 
+    def patch_opportunity(
+        self,
+        opportunity_id: int,
+        *,
+        role: str | None = None,
+        kind: str | None = None,
+        url: str | None = None,
+    ) -> dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM opportunities WHERE id=?", (opportunity_id,)).fetchone()
+        if not row:
+            raise ValueError("unknown opportunity")
+        if kind is not None and kind not in VALID_KINDS:
+            raise ValueError("bad kind")
+        self.conn.execute(
+            """
+            UPDATE opportunities SET
+                role=COALESCE(?, role),
+                kind=COALESCE(?, kind),
+                url=COALESCE(?, url),
+                updated_at=?
+            WHERE id=?
+            """,
+            (role, kind, url, _iso(), opportunity_id),
+        )
+        self.conn.commit()
+        return row_to_dict(self.conn.execute("SELECT * FROM opportunities WHERE id=?", (opportunity_id,)).fetchone())
+
     def list_opportunities(self) -> list[dict[str, Any]]:
         return [row_to_dict(r) for r in self.conn.execute("SELECT * FROM opportunities ORDER BY updated_at DESC")]
 
@@ -372,7 +399,7 @@ class Store:
                 self.upsert_opportunity(url=url, role=subject, kind=kind, state=state, source="mail")
         when = parse_when(blob)
         if when and (kind in {"hackathon", "conference"} or classification in {"hackathon", "conference"}):
-            join = first_url(blob)
+            join = pick_join_url(blob)
             end = when + timedelta(hours=2)
             self.upsert_meeting(
                 uid=f"mail:{message_id}",
@@ -391,6 +418,17 @@ class Store:
             for r in self.conn.execute("SELECT * FROM mail_actions WHERE status=? ORDER BY id DESC", (status,))
         ]
 
+    def _resolve_join(self, title: str, join_url: str | None, location: str | None, notes: str | None) -> str | None:
+        picked = pick_join_url(notes, location, preferred=join_url)
+        if picked:
+            return picked
+        for mail in self.list_mail_actions("open"):
+            if mail_matches_event(title, mail.get("subject") or ""):
+                found = pick_join_url(mail.get("card"), mail.get("subject"))
+                if found:
+                    return found
+        return None
+
     def upsert_meeting(
         self,
         uid: str,
@@ -403,26 +441,64 @@ class Store:
         kind: str | None = None,
         modality: str | None = None,
     ) -> dict[str, Any]:
+        existing = self.conn.execute("SELECT * FROM meetings WHERE uid=?", (uid,)).fetchone()
+        locked = bool(existing["join_locked"]) if existing else False
+        picked = self._resolve_join(title, join_url, location, notes)
+        if locked:
+            stored_join = existing["join_url"]
+            lock_val = existing["join_locked"]
+        else:
+            stored_join = picked
+            lock_val = existing["join_locked"] if existing else 0
         self.conn.execute(
             """
-            INSERT INTO meetings(uid, title, start_at, end_at, join_url, location, notes, ack, acked_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+            INSERT INTO meetings(uid, title, start_at, end_at, join_url, join_locked, location, notes, ack, acked_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
             ON CONFLICT(uid) DO UPDATE SET
                 title=excluded.title, start_at=excluded.start_at, end_at=excluded.end_at,
-                join_url=excluded.join_url, location=excluded.location, notes=excluded.notes
+                join_url=excluded.join_url, join_locked=excluded.join_locked,
+                location=excluded.location, notes=excluded.notes
             """,
-            (uid, title, start_at, end_at, join_url, location, notes),
+            (uid, title, start_at, end_at, stored_join, lock_val, location, notes),
         )
         self.conn.commit()
         row = row_to_dict(self.conn.execute("SELECT * FROM meetings WHERE uid=?", (uid,)).fetchone())
         if not row.get("confirmed"):
-            guess_kind, guess_mod = classify_event(title, join_url, location, notes)
+            guess_kind, guess_mod = classify_event(title, stored_join, location, notes)
             kind = kind or guess_kind
             modality = modality or guess_mod
             self.conn.execute("UPDATE meetings SET kind=?, modality=? WHERE uid=?", (kind, modality, uid))
             self.conn.commit()
         self.sync_reminders(uid)
         return row_to_dict(self.conn.execute("SELECT * FROM meetings WHERE uid=?", (uid,)).fetchone())
+
+    def patch_meeting(
+        self,
+        meeting_id: int,
+        *,
+        join_url: str | None = None,
+        modality: str | None = None,
+        kind: str | None = None,
+        title: str | None = None,
+    ) -> dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM meetings WHERE id=?", (meeting_id,)).fetchone()
+        if not row:
+            raise ValueError("unknown meeting")
+        if title is not None:
+            self.conn.execute("UPDATE meetings SET title=? WHERE id=?", (title, meeting_id))
+        if kind is not None:
+            self.conn.execute("UPDATE meetings SET kind=? WHERE id=?", (kind, meeting_id))
+        if modality is not None:
+            self.conn.execute("UPDATE meetings SET modality=? WHERE id=?", (modality, meeting_id))
+        if join_url is not None:
+            self.conn.execute(
+                "UPDATE meetings SET join_url=?, join_locked=1 WHERE id=?",
+                (join_url, meeting_id),
+            )
+        self.conn.commit()
+        uid = row["uid"]
+        self.sync_reminders(uid)
+        return row_to_dict(self.conn.execute("SELECT * FROM meetings WHERE id=?", (meeting_id,)).fetchone())
 
     def sync_reminders(self, uid: str) -> None:
         row = self.conn.execute("SELECT * FROM meetings WHERE uid=?", (uid,)).fetchone()
