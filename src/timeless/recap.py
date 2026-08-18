@@ -33,7 +33,7 @@ def connect_phone(mode: str = "wireless") -> dict[str, Any]:
         r = subprocess.run(
             ["/bin/bash", str(PHONE_PULL)],
             check=False,
-            timeout=40,
+            timeout=60,
             capture_output=True,
             env=env,
         )

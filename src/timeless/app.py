@@ -78,6 +78,7 @@ class AckIn(BaseModel):
 class UrlIn(BaseModel):
     url: str
     title: str | None = None
+    source: str | None = None
 
 
 class ScreenIn(BaseModel):
@@ -261,7 +262,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
 
     @app.post("/api/ingest/url")
     def ingest_url(body: UrlIn):
-        return store.ingest_url(body.url, body.title)
+        return store.ingest_url(body.url, body.title, source=body.source or "url")
 
     @app.post("/api/ingest/screen")
     def ingest_screen(body: ScreenIn):

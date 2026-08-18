@@ -321,9 +321,13 @@ class Store:
             # Accepting still does not send or submit; the hands layer is not built.
             return
 
-    def ingest_url(self, url: str, title: str | None = None) -> dict[str, Any]:
-        self.add_event("url", title or url, {"url": url, "title": title})
-        self.heartbeat("mac_browser", url)
+    def ingest_url(self, url: str, title: str | None = None, source: str = "url") -> dict[str, Any]:
+        src = "phone" if source == "phone" else "url"
+        self.add_event(src, title or url, {"url": url, "title": title})
+        if src == "phone":
+            self.heartbeat("phone_aw", url)
+        else:
+            self.heartbeat("mac_browser", url)
         if not looks_like_job_url(url):
             return {"job": False, "url": url}
         company = title or url

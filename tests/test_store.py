@@ -38,6 +38,15 @@ def test_non_job_url_not_tracked(store):
     out = store.ingest_url("https://example.com/blog")
     assert out["job"] is False
     assert store.list_opportunities() == []
+    hearts = {h["sensor"]: h for h in store.heartbeats()}
+    assert "mac_browser" in hearts
+
+
+def test_phone_url_does_not_count_as_mac_browser(store):
+    store.ingest_url("https://leetcode.com", title="LC", source="phone")
+    hearts = {h["sensor"]: h for h in store.heartbeats()}
+    assert "mac_browser" not in hearts
+    assert "phone_aw" in hearts
 
 
 def test_confirmation_requires_approval(store):

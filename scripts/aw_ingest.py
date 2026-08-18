@@ -9,20 +9,22 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-AW = os.environ.get("AW_URL", "http://127.0.0.1:5600")
+AW = os.environ.get("AW_URL", "http://127.0.0.1:5600").rstrip("/")
 TIMLESS = os.environ.get("TIMELESS_URL", "http://127.0.0.1:8787")
 SENSOR = os.environ.get("AW_SENSOR", "mac_aw")
 
 
 def get(url: str):
-    with urllib.request.urlopen(url, timeout=5) as r:
+    if not url.endswith("/") and "/events" not in url:
+        url = url + "/"
+    with urllib.request.urlopen(url, timeout=8) as r:
         return json.load(r)
 
 
 def post(url: str, payload: dict) -> None:
     data = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=5) as r:
+    with urllib.request.urlopen(req, timeout=8) as r:
         r.read()
 
 
@@ -37,12 +39,30 @@ def events_for(bucket: str, start: datetime) -> list:
 
 def main() -> None:
     since = datetime.now(timezone.utc) - timedelta(minutes=30)
+    phone = SENSOR.startswith("phone")
     try:
         bmap = get(f"{AW}/api/0/buckets")
     except Exception as exc:
         print(f"activitywatch unreachable: {exc}")
+        try:
+            post(
+                f"{TIMLESS}/api/heartbeat",
+                {"sensor": SENSOR, "detail": f"AW HTTP failed: {exc}"},
+            )
+        except Exception:
+            pass
         return
     post(f"{TIMLESS}/api/heartbeat", {"sensor": SENSOR, "detail": f"{len(bmap)} buckets"})
+    names = " ".join(bmap)
+    if not phone:
+        web_n = sum(1 for k in bmap if "web" in k.lower() or "chrome" in k.lower() or "browser" in k.lower())
+        post(
+            f"{TIMLESS}/api/heartbeat",
+            {
+                "sensor": "mac_browser",
+                "detail": f"{web_n} web buckets" if web_n else "no Web Watcher bucket (install the Chrome extension)",
+            },
+        )
     urls = 0
     apps = 0
     for bid, meta in bmap.items():
@@ -60,24 +80,28 @@ def main() -> None:
             package = data.get("package") or data.get("app") or ""
             if url:
                 try:
-                    post(f"{TIMLESS}/api/ingest/url", {"url": url, "title": title or url})
+                    payload = {"url": url, "title": title or url}
+                    if phone:
+                        payload["source"] = "phone"
+                    post(f"{TIMLESS}/api/ingest/url", payload)
                     urls += 1
                 except Exception as exc:
                     print(f"url ingest failed: {exc}")
                     return
             elif package or title:
                 try:
-                    post(
-                        f"{TIMLESS}/api/ingest/phone" if SENSOR.startswith("phone") or "android" in name else f"{TIMLESS}/api/heartbeat",
-                        {"summary": f"{title} {package}".strip(), "payload": data}
-                        if SENSOR.startswith("phone") or "android" in name
-                        else {"sensor": SENSOR, "detail": title},
-                    )
+                    if phone or "android" in name:
+                        post(
+                            f"{TIMLESS}/api/ingest/phone",
+                            {"summary": f"{title} {package}".strip(), "payload": data},
+                        )
+                    else:
+                        post(f"{TIMLESS}/api/heartbeat", {"sensor": SENSOR, "detail": title})
                     apps += 1
                 except Exception as exc:
                     print(f"app ingest failed: {exc}")
                     return
-    print(f"forwarded {urls} urls, {apps} app events from {SENSOR}")
+    print(f"forwarded {urls} urls, {apps} app events from {SENSOR} ({names})")
 
 
 if __name__ == "__main__":

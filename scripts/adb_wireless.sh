@@ -18,7 +18,7 @@ wireless_connected() {
 }
 
 phone_ip() {
-  adb shell ip -f inet addr show wlan0 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1
+  adb shell ip -f inet addr show wlan0 2>/dev/null | awk '/inet /{split($2,a,"/"); print a[1]; exit}' || true
 }
 
 connect_host() {
