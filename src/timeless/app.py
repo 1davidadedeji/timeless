@@ -26,6 +26,7 @@ DEFAULT_DB = Path.home() / "Library" / "Application Support" / "Timeless" / "tim
 class PlanIn(BaseModel):
     outcomes: str
     timeline: list[dict] = Field(min_length=1)
+    day: str | None = None
 
 
 class RitualIn(BaseModel):
@@ -202,10 +203,21 @@ def create_app(db_path: str | None = None) -> FastAPI:
     def phone_connect(body: PhoneConnectIn):
         return connect_phone(body.mode)
 
+    @app.get("/api/plan")
+    def get_plan(day: str | None = None):
+        key = day or day_key()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", key):
+            raise HTTPException(400, "day must be YYYY-MM-DD")
+        plan = store.get_plan(key)
+        return plan or {"day": key, "outcomes": "", "timeline": []}
+
     @app.post("/api/plan")
     def save_plan(body: PlanIn):
         try:
-            return store.save_plan(body.outcomes, body.timeline)
+            day = body.day or day_key()
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+                raise ValueError("day must be YYYY-MM-DD")
+            return store.save_plan(body.outcomes, body.timeline, day=day)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 

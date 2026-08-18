@@ -4,38 +4,42 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Timeless recap</title>
+  <link rel="stylesheet" href="/static/style.css" />
   <style>
-    html, body { margin: 0; height: 100%; background: var(--bg, #070707); color: #f3ead8; font-family: "Arial Narrow", "Helvetica Neue", sans-serif; }
+    html, body { margin: 0; min-height: 100%; }
     .stage { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: auto; }
     .ticket {
       position: relative; z-index: 1;
-      width: min(340px, 92vw); min-height: 420px; border: 1px solid var(--accent, #c4a35a); padding: 28px 24px 22px;
+      width: min(380px, 92vw); min-height: 0; border: 1px solid var(--accent, #c4a35a); padding: 28px 24px 22px;
       display: flex; flex-direction: column; box-shadow: 0 0 0 8px var(--bg, #070707), 0 0 0 9px color-mix(in srgb, var(--accent, #c4a35a) 14%, transparent);
     }
     .k { font-size: 11px; letter-spacing: .42em; text-transform: uppercase; color: var(--accent, #c4a35a); }
-    h1 { font-weight: 400; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; margin: 36px 0 8px; }
-    .stat { font-size: 72px; line-height: .9; font-weight: 700; margin: 8px 0 20px; letter-spacing: -.04em; }
+    h1 { font-weight: 400; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; margin: 28px 0 8px; }
+    .stat { font-size: 64px; line-height: .9; font-weight: 700; margin: 8px 0 4px; letter-spacing: -.04em; }
     .bar { height: 1px; background: linear-gradient(90deg, var(--accent, #c4a35a), transparent); margin: 0 0 16px; }
-    p { margin: 0; color: #b9b09a; font-size: 15px; line-height: 1.4; flex: 1; overflow-wrap: anywhere; }
-    button {
-      margin-top: 24px; background: var(--accent, #c4a35a); color: #100c06; border: 0; padding: 12px 16px;
-      font: inherit; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
-    }
+    .body { margin: 0 0 10px; color: #b9b09a; font-size: 15px; line-height: 1.45; }
     .dots { display: flex; gap: 6px; margin-bottom: 18px; }
     .dots i { width: 6px; height: 6px; border-radius: 50%; background: #333; display: block; }
     .dots i.on { background: var(--accent, #c4a35a); }
+    .ticket .nav-row { margin-top: 18px; }
+    .ticket.card:hover, .ticket.card:focus-within { transform: none; }
   </style>
 </head>
 <body>
   <div class="stage">
-    <div class="ticket" id="card">
+    <div class="ticket card" id="card">
       <div class="dots" id="dots"></div>
-      <div class="k" id="kicker">Admit one</div>
+      <div class="k" id="kicker">Recap</div>
       <h1 id="title">Loading</h1>
       <div class="stat" id="stat">—</div>
+      <div class="stat-label" id="stat-label"></div>
       <div class="bar"></div>
-      <p id="body">Pulling the day, including the phone if it will answer.</p>
-      <button type="button" id="go">Next</button>
+      <p class="body" id="body">Pulling the day, including the phone if it will answer.</p>
+      <div id="extra"></div>
+      <div class="nav-row" id="nav" hidden>
+        <button type="button" class="ghost" id="prev">Prev</button>
+        <button type="button" id="go">Next</button>
+      </div>
     </div>
   </div>
   <script src="/static/theme.js"></script>
@@ -43,31 +47,60 @@
   <script>
     let cards = [];
     let i = 0;
+    function esc(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    function barRow(label, n, max) {
+      const pct = max ? Math.max(6, Math.round((n / max) * 100)) : 6;
+      return `<div class="compare-row"><span>${esc(label)}</span><div class="compare-track"><i class="compare-fill" style="width:${pct}%"></i></div><b>${n}</b></div>`;
+    }
     function paint() {
       const c = cards[i] || {};
-      el("kicker").textContent = c.kicker || "Admit one";
+      el("kicker").textContent = c.kicker || "Recap";
       el("title").textContent = c.title || "";
       el("stat").textContent = c.stat || "—";
+      el("stat-label").textContent = c.stat_label || "";
       el("body").textContent = c.body || "";
+      const extra = el("extra");
+      extra.innerHTML = "";
+      if (c.kind === "compare" && c.compare) {
+        const max = Math.max(c.compare.blocks, c.compare.events, 1);
+        extra.innerHTML = `<div class="compare-bars">
+          ${barRow("Planned", c.compare.blocks, max)}
+          ${barRow("Showed up", c.compare.events, max)}
+        </div>
+        <p class="body">Last seven days (notes logged)</p>
+        <div class="week-bars">` +
+          (c.compare.week || []).map((d) => {
+            const h = Math.max(4, Math.round((d.events / Math.max(...c.compare.week.map((x) => x.events), 1)) * 72));
+            const label = (d.day || "").slice(5);
+            return `<div class="week-col" title="${esc(d.day)}"><i style="height:${h}px"></i><b>${esc(label)}</b></div>`;
+          }).join("") + `</div>`;
+      } else if ((c.lines || []).length) {
+        extra.innerHTML = `<ul class="recap-lines">${c.lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`;
+      }
       el("go").textContent = i >= cards.length - 1 ? "I saw this" : "Next";
+      el("prev").disabled = i <= 0;
       el("dots").innerHTML = cards.map((_, n) => `<i class="${n===i?"on":""}"></i>`).join("");
-      el("go").style.display = cards.length ? "block" : "none";
+      el("nav").hidden = !cards.length;
     }
     function phoneStep() {
       el("dots").innerHTML = "";
       el("kicker").textContent = "Phone";
       el("title").textContent = "Reconnect";
       el("stat").textContent = "ADB";
+      el("stat-label").textContent = "";
       el("body").textContent = "Wireless if this Mac is on the phone hotspot (or the saved Wi-Fi IP). USB if the cable is plugged in. Skip uses Mac data only.";
-      el("go").style.display = "none";
+      el("nav").hidden = true;
+      el("extra").innerHTML = "";
       let actions = document.getElementById("phone-actions");
       if (!actions) {
         actions = document.createElement("div");
         actions.id = "phone-actions";
         actions.innerHTML = `<button type="button" id="ph-w">Wireless</button>
           <button type="button" id="ph-u">USB</button>
-          <button type="button" id="ph-s" style="background:transparent;color:#f3ead8;border:1px solid #c4a35a;margin-top:8px">Skip</button>
-          <p id="ph-msg" style="margin-top:12px;font-size:13px"></p>`;
+          <button type="button" id="ph-s" class="ghost" style="margin-top:8px">Skip</button>
+          <p id="ph-msg" class="sub" style="margin-top:12px"></p>`;
         el("card").appendChild(actions);
         const msg = () => document.getElementById("ph-msg");
         const run = async (body) => {
@@ -92,6 +125,9 @@
       }
       i += 1;
       paint();
+    };
+    el("prev").onclick = () => {
+      if (i > 0) { i -= 1; paint(); }
     };
     (async () => {
       const t = await api("/api/today");

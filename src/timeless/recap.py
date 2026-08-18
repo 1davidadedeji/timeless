@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from timeless.clock import due_recap_day
 from timeless.store import Store
@@ -69,45 +72,157 @@ def pull_phone(timeout: int = 25) -> bool:
         return False
 
 
-def build_cards(store: Store, day: str, phone_synced: bool) -> list[dict[str, str]]:
+def _payload(event: dict[str, Any]) -> dict[str, Any]:
+    raw = event.get("payload") or {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _humanize(text: str) -> str:
+    s = (text or "").strip()
+    if not s:
+        return "something"
+    if "://" in s:
+        host = urlparse(s).netloc.replace("www.", "")
+        return host or s[:48]
+    parts = s.split(".")
+    if len(parts) >= 3 and parts[0] in {"com", "org", "net", "io", "app"}:
+        return parts[-1].replace("_", " ").replace("-", " ")
+    toks = s.split()
+    if len(toks) >= 2 and "." in toks[1] and toks[1].count(".") >= 2:
+        return toks[0]
+    return s[:56]
+
+
+def _label(event: dict[str, Any]) -> str:
+    payload = _payload(event)
+    for key in ("app", "title", "host", "url"):
+        val = payload.get(key)
+        if val:
+            return _humanize(str(val))
+    return _humanize(str(event.get("summary") or event.get("source") or "activity"))
+
+
+def _pretty_day(day: str) -> str:
+    try:
+        d = datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        return day
+    return d.strftime("%A, %b %d").replace(" 0", " ")
+
+
+def _block_line(block: dict[str, Any]) -> str:
+    start = str(block.get("start") or "").strip()
+    end = str(block.get("end") or "").strip()
+    task = str(block.get("task") or "").strip()
+    if start and end:
+        return f"{start}–{end}  {task}"
+    return task
+
+
+def day_stats(store: Store, day: str) -> dict[str, Any]:
+    plan = store.get_plan(day)
+    events = store.events_on_day(day)
+    return {
+        "day": day,
+        "label": _pretty_day(day)[:3],
+        "blocks": len((plan or {}).get("timeline") or []),
+        "events": len(events),
+        "had_plan": plan is not None,
+    }
+
+
+def week_compare(store: Store, day: str) -> list[dict[str, Any]]:
+    start = datetime.strptime(day, "%Y-%m-%d")
+    out = []
+    for i in range(6, -1, -1):
+        key = (start - timedelta(days=i)).strftime("%Y-%m-%d")
+        out.append(day_stats(store, key))
+    return out
+
+
+def build_cards(store: Store, day: str, phone_synced: bool) -> list[dict[str, Any]]:
     events = store.events_on_day(day)
     plan = store.get_plan(day)
     mac = [e for e in events if e["source"] in {"url", "screen"}]
     phone = [e for e in events if e["source"] == "phone"]
     jobs = [e for e in mac if "http" in (e.get("summary") or "")]
     opps = [o for o in store.list_opportunities() if (o.get("updated_at") or o.get("created_at") or "").startswith(day)]
-    top: dict[str, int] = {}
+    counts: dict[str, int] = {}
     for e in events:
-        label = (e.get("summary") or e["source"])[:80]
-        top[label] = top.get(label, 0) + 1
-    ranked = sorted(top.items(), key=lambda kv: -kv[1])[:3]
-    top_line = " · ".join(f"{n}× {name}" for name, n in ranked) or "Quiet machines."
-    cards = [
-        {"kicker": "Admit one", "title": day, "stat": "Chicago", "body": "Your day, closed."},
+        name = _label(e)
+        counts[name] = counts.get(name, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: -kv[1])[:3]
+    top_lines = [f"{name} — {n} times" for name, n in ranked]
+    blocks = (plan or {}).get("timeline") or []
+    outcomes = ((plan or {}).get("outcomes") or "").strip()
+    week = week_compare(store, day)
+
+    cards: list[dict[str, Any]] = [
         {
-            "kicker": "The work",
-            "title": "Hours on the work",
+            "kicker": "Recap",
+            "title": _pretty_day(day),
             "stat": str(len(events)),
-            "body": (plan or {}).get("outcomes") or "No plan was locked.",
+            "stat_label": "things logged",
+            "body": "A short look at what you meant to do, and what actually showed up.",
+            "lines": [],
         },
-        {"kicker": "Mac", "title": "What held the screen", "stat": str(len(mac)), "body": top_line},
+        {
+            "kicker": "Plan",
+            "title": "What you set out to do",
+            "stat": str(len(blocks)),
+            "stat_label": "time blocks",
+            "body": outcomes or "You did not lock a plan for this day.",
+            "lines": [_block_line(b) for b in blocks if str(b.get("task") or "").strip()],
+        },
+        {
+            "kicker": "Mac",
+            "title": "What held the screen",
+            "stat": str(len(mac)),
+            "stat_label": "Mac notes",
+            "body": "Most of the time was in:" if top_lines else "A quiet day on this Mac.",
+            "lines": top_lines,
+        },
         {
             "kicker": "Phone",
-            "title": "In the hand",
+            "title": "In your hand",
             "stat": str(len(phone)),
-            "body": "Synced." if phone_synced else "Phone did not sync. Deck is Mac-only.",
+            "stat_label": "phone notes",
+            "body": (
+                f"The phone checked in. It logged {len(phone)} app switches."
+                if phone_synced
+                else "The phone did not sync. This recap is Mac-only."
+            ),
+            "lines": [],
         },
         {
-            "kicker": "Jobs",
-            "title": "Opened, not necessarily sent",
+            "kicker": "Programs",
+            "title": "Jobs and programs",
             "stat": str(len(opps) or len(jobs)),
-            "body": ", ".join((o.get("role") or o.get("url") or "")[:40] for o in opps[:4]) or "No postings tagged.",
+            "stat_label": "touched",
+            "body": "Roles you touched today:" if opps else "No postings were tagged today.",
+            "lines": [(o.get("role") or o.get("url") or "a posting")[:56] for o in opps[:5]],
         },
         {
-            "kicker": "Gaps",
-            "title": "Misses",
-            "stat": "—",
-            "body": "Meetings and mail join this card once those ingest.",
+            "kicker": "Compare",
+            "title": "Plan vs what showed up",
+            "stat": str(len(events)),
+            "stat_label": "today",
+            "kind": "compare",
+            "body": (
+                f"You planned {len(blocks)} block{'s' if len(blocks) != 1 else ''}. "
+                f"{len(events)} notes landed on this day."
+            ),
+            "lines": [],
+            "compare": {
+                "blocks": len(blocks),
+                "events": len(events),
+                "week": week,
+            },
         },
     ]
     return cards

@@ -26,36 +26,41 @@
       </div>
     </header>
     <main class="flow">
-      <section class="card">
-        <h2>Year</h2>
-        <div id="heat"></div>
-      </section>
-      <section class="card">
-        <h2>Today</h2>
-        <div id="plan"></div>
-      </section>
+      <div class="band band-year">
+        <section class="card compact">
+          <h2>Year</h2>
+          <details class="fold" open>
+            <summary>Activity</summary>
+            <div id="heat"></div>
+          </details>
+        </section>
+        <section class="card compact">
+          <h2>Plan</h2>
+          <div id="plan"></div>
+        </section>
+      </div>
       <section class="card">
         <h2>Events</h2>
         <div class="scroll" id="meetings"></div>
       </section>
       <section class="card">
-        <h2>Programs</h2>
-        <div class="scroll" id="opps"></div>
+        <h2>Approvals</h2>
+        <div class="scroll" id="approvals"></div>
       </section>
-      <div class="band">
+      <div class="band band-prog">
         <section class="card">
-          <h2>Approvals</h2>
-          <div class="scroll" id="approvals"></div>
+          <h2>Programs</h2>
+          <div class="scroll" id="opps"></div>
         </section>
-        <section class="card">
-          <h2>Mail</h2>
-          <div class="scroll" id="mail"></div>
+        <section class="card compact">
+          <h2>Rituals</h2>
+          <div id="rituals"></div>
         </section>
       </div>
       <div class="band">
         <section class="card">
-          <h2>Rituals</h2>
-          <div id="rituals"></div>
+          <h2>Mail</h2>
+          <div class="scroll" id="mail"></div>
         </section>
         <section class="card">
           <h2>Sensors</h2>
@@ -90,6 +95,7 @@
   </div>
   <script src="/static/theme.js"></script>
   <script src="/static/app.js"></script>
+  <script src="/static/clock.js"></script>
   <script>
     function esc(s) {
       return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -120,21 +126,40 @@
     }
     let lastMain = "";
     let lastSide = "";
+    let lastToday = null;
+    let planDay = "";
+    let viewPlanCache = { day: "", plan: null };
     function editing() {
+      if (document.querySelector(".clock-pop")) return true;
       const a = document.activeElement;
       return a && ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName) && a.id !== "q";
     }
+    function blockHtml(b) {
+      return `<div class="block-row" data-block>
+        <div><label>Start</label><button type="button" class="time-btn" data-k="start">${esc(b.start || "09:00")}</button></div>
+        <div><label>End</label><button type="button" class="time-btn" data-k="end">${esc(b.end || "10:00")}</button></div>
+        <input class="task" data-k="task" placeholder="What you'll do" value="${esc(b.task || "")}" />
+      </div>`;
+    }
     function paintMain(t) {
-      const blocks = (t.plan.timeline || []).map((b, i) =>
-        `<tr><td><input data-plan="${i}" data-k="start" value="${esc(b.start || "")}" /></td>
-         <td><input data-plan="${i}" data-k="end" value="${esc(b.end || "")}" /></td>
-         <td><input data-plan="${i}" data-k="task" value="${esc(b.task || "")}" /></td></tr>`
-      ).join("");
-      el("plan").innerHTML = `<label>Outcomes</label>
-        <textarea id="outcomes">${esc(t.plan.outcomes)}</textarea>
-        <div class="scroll"><table class="grid-table"><thead><tr><th>Start</th><th>End</th><th>Task</th></tr></thead>
-        <tbody id="plan-rows">${blocks}</tbody></table></div>
-        <div class="row"><button type="button" id="save-plan">Save plan</button></div>`;
+      lastToday = t;
+      if (!planDay) planDay = t.day;
+      const plan = (planDay === t.day ? (t.plan || {}) : (t.viewPlan || {}));
+      const blocks = (plan.timeline && plan.timeline.length)
+        ? plan.timeline.map(blockHtml).join("")
+        : blockHtml({ start: "09:00", end: "10:00", task: "" });
+      el("plan").innerHTML = `<label>Day</label>
+        <input type="date" id="plan-day" value="${esc(planDay)}" min="${esc(t.day)}" />
+        <label>What done means</label>
+        <textarea id="outcomes">${esc(plan.outcomes || "")}</textarea>
+        <details class="fold" open>
+          <summary>Time blocks</summary>
+          <div id="plan-rows">${blocks}</div>
+          <div class="row">
+            <button type="button" class="ghost" id="add-block">Add block</button>
+            <button type="button" id="save-plan">Save plan</button>
+          </div>
+        </details>`;
       el("meetings").innerHTML = t.meetings.length
         ? `<table class="grid-table"><thead><tr><th>When</th><th>Title</th><th>Type</th><th>Join</th></tr></thead><tbody>` +
           t.meetings.map((m) => `<tr>
@@ -217,6 +242,14 @@
       const nav = opts && opts.nav;
       const force = opts && opts.force;
       const t = await api("/api/today");
+      if (planDay && planDay !== t.day) {
+        if (viewPlanCache.day !== planDay) {
+          viewPlanCache = { day: planDay, plan: await api("/api/plan?day=" + encodeURIComponent(planDay)) };
+        }
+        t.viewPlan = viewPlanCache.plan;
+      } else if (planDay === t.day) {
+        t.viewPlan = t.plan;
+      }
       if (nav) {
         if (t.halt) { location.href = "/halt"; return; }
         if (t.needs_recap) { location.href = "/recap"; return; }
@@ -228,7 +261,7 @@
       if (editing() && !force) return;
       const main = JSON.stringify({
         plan: t.plan, meetings: t.meetings, opps: t.opportunities,
-        approvals: t.approvals, mail: t.mail, rituals: t.rituals,
+        approvals: t.approvals, mail: t.mail, rituals: t.rituals, planDay,
       });
       const side = JSON.stringify({ heat: t.heatmap, heart: t.heartbeats });
       if (force || main !== lastMain) {
@@ -241,19 +274,32 @@
       }
     }
 
+    function collectTimeline() {
+      return [...document.querySelectorAll("#plan-rows [data-block]")].map((row) => ({
+        start: row.querySelector("[data-k=start]").textContent.trim(),
+        end: row.querySelector("[data-k=end]").textContent.trim(),
+        task: row.querySelector("[data-k=task]").value,
+      })).filter((b) => b.task.trim());
+    }
     async function savePlan() {
       const outcomes = el("outcomes").value;
-      const timeline = [...document.querySelectorAll("#plan-rows tr")].map((tr) => {
-        const inputs = tr.querySelectorAll("input");
-        return { start: inputs[0].value, end: inputs[1].value, task: inputs[2].value };
-      }).filter((b) => b.task.trim());
-      await api("/api/plan", { method: "POST", body: JSON.stringify({ outcomes, timeline }) });
+      const day = el("plan-day").value || planDay;
+      const timeline = collectTimeline();
+      await api("/api/plan", { method: "POST", body: JSON.stringify({ outcomes, timeline, day }) });
+      planDay = day;
+      viewPlanCache = { day: "", plan: null };
       await refresh({ force: true });
     }
 
     document.body.addEventListener("click", async (e) => {
       const t = e.target;
       if (t.id === "save-plan") await savePlan();
+      if (t.id === "add-block") {
+        el("plan-rows").insertAdjacentHTML("beforeend", blockHtml({ start: "09:00", end: "10:00", task: "" }));
+      }
+      if (t.classList && t.classList.contains("time-btn")) {
+        ClockPop(t, t.textContent.trim(), (v) => { t.textContent = v; });
+      }
       if (t.dataset.act && t.dataset.id) {
         await api(`/api/approvals/${t.dataset.id}/${t.dataset.act}`, { method: "POST" });
         await refresh({ force: true });
@@ -266,6 +312,16 @@
     });
     document.body.addEventListener("change", async (e) => {
       const t = e.target;
+      if (t.id === "plan-day") {
+        planDay = t.value;
+        viewPlanCache = { day: planDay, plan: await api("/api/plan?day=" + encodeURIComponent(planDay)) };
+        if (lastToday) {
+          lastToday.viewPlan = viewPlanCache.plan;
+          lastMain = "";
+          paintMain(lastToday);
+        }
+        return;
+      }
       if (t.dataset.meet && t.dataset.k) {
         const body = {};
         body[t.dataset.k] = t.value;

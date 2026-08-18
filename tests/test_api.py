@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from fastapi.testclient import TestClient
 
 from timeless.app import create_app
@@ -73,6 +75,25 @@ def test_plan_and_gate(tmp_path):
     )
     assert ok.status_code == 200
     assert c.get("/api/today").json()["needs_gate"] is False
+
+
+def test_plan_for_future_day(tmp_path):
+    c = client(tmp_path)
+    today = c.get("/api/today").json()["day"]
+    nxt = (datetime.strptime(today, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    r = c.post(
+        "/api/plan",
+        json={
+            "outcomes": "Prep tomorrow",
+            "timeline": [{"task": "read", "start": "09:00", "end": "10:00"}],
+            "day": nxt,
+        },
+    )
+    assert r.status_code == 200
+    assert c.get("/api/today").json()["needs_gate"] is True
+    got = c.get("/api/plan", params={"day": nxt}).json()
+    assert got["outcomes"] == "Prep tomorrow"
+    assert c.get("/api/plan", params={"day": "nope"}).status_code == 400
 
 
 def test_chat_accepts_history(tmp_path):

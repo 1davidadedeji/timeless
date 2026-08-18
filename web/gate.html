@@ -9,13 +9,17 @@
 <body>
   <div class="overlay">
     <div class="panel card">
-      <h1>Set today before you proceed</h1>
-      <p class="sub">Timeless will not unlock until there is a real plan.</p>
-      <label>Outcomes</label>
-      <textarea id="outcomes" placeholder="What done means today" autofocus></textarea>
-      <label>Timeline (one block per line: start-end task)</label>
-      <textarea id="timeline" placeholder="09:00-10:00 LeetCode&#10;10:00-12:00 Coursera ML&#10;14:00-16:00 Applications"></textarea>
+      <h1>Lock a plan</h1>
+      <p class="sub">Today stays locked until this day’s plan is saved. You can also set a day ahead.</p>
+      <label>Day</label>
+      <input type="date" id="plan-day" />
+      <label>What done means</label>
+      <textarea id="outcomes" placeholder="In plain words, what finished looks like" autofocus></textarea>
+      <label>Time blocks</label>
+      <p class="sub">Drag the clock hands like an alarm. Inner ring is the hour, outer ring is the minute.</p>
+      <div id="blocks"></div>
       <div class="row">
+        <button type="button" class="ghost" id="add-block">Add block</button>
         <button type="button" id="lock">Lock plan</button>
       </div>
       <p class="miss" id="err"></p>
@@ -23,23 +27,58 @@
   </div>
   <script src="/static/theme.js"></script>
   <script src="/static/app.js"></script>
+  <script src="/static/clock.js"></script>
   <script>
+    let today = "";
+    function blockEl(start, end, task) {
+      const wrap = document.createElement("div");
+      wrap.className = "block-row";
+      wrap.innerHTML = `<div><label>Start</label><div data-start></div></div>
+        <div><label>End</label><div data-end></div></div>
+        <input class="task" placeholder="What you'll do" value="${(task || "").replace(/"/g, "&quot;")}" />`;
+      wrap._start = AnalogClock(wrap.querySelector("[data-start]"), { value: start || "09:00" });
+      wrap._end = AnalogClock(wrap.querySelector("[data-end]"), { value: end || "10:00" });
+      return wrap;
+    }
+    function addBlock(start, end, task) {
+      el("blocks").appendChild(blockEl(start, end, task));
+    }
+    async function loadDay(day) {
+      const p = await api("/api/plan?day=" + encodeURIComponent(day));
+      el("outcomes").value = p.outcomes || "";
+      el("blocks").innerHTML = "";
+      const tl = p.timeline || [];
+      if (tl.length) tl.forEach((b) => addBlock(b.start, b.end, b.task));
+      else addBlock("09:00", "10:00", "");
+    }
+    el("add-block").onclick = () => addBlock("09:00", "10:00", "");
+    el("plan-day").onchange = () => loadDay(el("plan-day").value);
     el("lock").onclick = async () => {
       el("err").textContent = "";
+      const day = el("plan-day").value;
       const outcomes = el("outcomes").value;
-      const timeline = el("timeline").value.split("\n").map((line) => {
-        const m = line.trim().match(/^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s+(.*)$/) || line.trim().match(/^(\S+)\s+(\S+)\s+(.+)$/);
-        if (m && m[3]) return { start: m[1], end: m[2], task: m[3] };
-        if (line.trim()) return { task: line.trim() };
-        return null;
-      }).filter(Boolean);
+      const timeline = [...el("blocks").children].map((row) => ({
+        start: row._start.value(),
+        end: row._end.value(),
+        task: row.querySelector(".task").value,
+      })).filter((b) => b.task.trim());
       try {
-        await api("/api/plan", { method: "POST", body: JSON.stringify({ outcomes, timeline }) });
-        location.href = "/";
+        await api("/api/plan", { method: "POST", body: JSON.stringify({ outcomes, timeline, day }) });
+        if (day === today) location.href = "/";
+        else el("err").textContent = "Saved for " + day + ". Today still needs a plan before the desk unlocks.";
       } catch (e) {
         el("err").textContent = e.message;
       }
     };
+    (async () => {
+      const t = await api("/api/today");
+      if (t.halt) { location.href = "/halt"; return; }
+      if (t.needs_recap) { location.href = "/recap"; return; }
+      today = t.day;
+      el("plan-day").value = t.day;
+      el("plan-day").min = t.day;
+      await loadDay(t.day);
+    })().catch((err) => { el("err").textContent = err.message; });
   </script>
 </body>
 </html>
