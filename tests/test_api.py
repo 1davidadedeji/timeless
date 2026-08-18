@@ -201,3 +201,13 @@ def test_chat_queues_send_instead_of_sending(tmp_path):
     assert "will not send" in body["reply"].lower()
     kinds = [a["kind"] for a in c.get("/api/today").json()["approvals"]]
     assert "do_send" in kinds
+
+
+def test_accept_mark_applied_missing_opportunity_returns_400(tmp_path):
+    c = client(tmp_path)
+    app = create_app(str(tmp_path / "api.db"))
+    store = app.state.store
+    approval = store.propose("mark_applied", {"opportunity_id": None, "url": None, "snippet": "inbox noise"})
+    r = c.post(f"/api/approvals/{approval['id']}/accept")
+    assert r.status_code == 400
+    assert "posting" in r.json()["detail"].lower()

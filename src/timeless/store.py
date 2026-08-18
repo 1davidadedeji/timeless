@@ -260,7 +260,10 @@ class Store:
         out = []
         for row in rows:
             data = row_to_dict(row)
-            data["payload"] = json.loads(data["payload"])
+            try:
+                data["payload"] = json.loads(data["payload"])
+            except (TypeError, json.JSONDecodeError):
+                data["payload"] = {"parse_error": True, "raw": data.get("payload")}
             out.append(data)
         return out
 
@@ -304,16 +307,25 @@ class Store:
             if not oid and payload.get("url"):
                 opp = self.upsert_opportunity(url=payload["url"], company=payload.get("company"), role=payload.get("role"))
                 oid = opp["id"]
+            if not oid:
+                raise ValueError("approval missing posting — add a URL or pick a tracked opportunity first")
             self.set_opportunity_state(int(oid), "applied")
         elif kind in {"mark_skipped", "opportunity_skip"}:
-            oid = payload["opportunity_id"]
+            oid = payload.get("opportunity_id")
+            if not oid:
+                raise ValueError("approval missing opportunity")
             self.set_opportunity_state(int(oid), "skipped")
         elif kind == "keep_seen":
-            oid = payload["opportunity_id"]
+            oid = payload.get("opportunity_id")
+            if not oid:
+                raise ValueError("approval missing opportunity")
             self.set_opportunity_state(int(oid), "seen")
         elif kind == "pin_ritual":
+            name = payload.get("name")
+            if not name:
+                raise ValueError("approval missing ritual name")
             self.add_ritual(
-                name=payload["name"],
+                name=name,
                 launch_url=payload.get("launch_url"),
                 match_host=payload.get("match_host"),
             )
@@ -684,7 +696,10 @@ class Store:
     def heatmap(self, weeks: int = 53) -> list[dict[str, Any]]:
         counts: dict[str, int] = {}
         for r in self.conn.execute("SELECT ts FROM events"):
-            ts = datetime.strptime(r["ts"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            try:
+                ts = datetime.strptime(r["ts"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                continue
             key = day_key(ts)
             counts[key] = counts.get(key, 0) + 1
         loc = datetime.strptime(day_key(), "%Y-%m-%d")

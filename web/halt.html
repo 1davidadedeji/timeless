@@ -9,10 +9,11 @@
 <body>
   <div class="overlay">
     <div class="panel card">
-      <p class="sub" id="why"></p>
-      <h1 id="title">Event</h1>
+      <p class="shell-kicker">Halt</p>
+      <div class="halt-meta" id="meta"></div>
+      <h1 class="shell-title" id="title">Event</h1>
       <p class="sub" id="when"></p>
-      <p id="copy">Acknowledge this, then you can continue.</p>
+      <p class="halt-copy" id="copy">Acknowledge this, then you can continue.</p>
       <div class="row" id="typebox" style="display:none">
         <button type="button" id="confirm">That's right</button>
         <button type="button" class="ghost" data-k="meeting" data-m="virtual">Virtual meeting</button>
@@ -21,7 +22,7 @@
         <button type="button" class="ghost" data-k="hackathon" data-m="physical">In-person hackathon</button>
         <button type="button" class="ghost" data-k="conference" data-m="physical">Conference</button>
       </div>
-      <div class="row">
+      <div class="plan-actions">
         <button type="button" id="join">Join</button>
         <button type="button" class="ghost" id="headed">I'm headed</button>
         <button type="button" class="ghost" id="in">I'm in</button>
@@ -48,9 +49,13 @@
       const reminder = halt.halt_kind === "reminder";
       el("title").textContent = halt.title;
       el("when").textContent = (halt.start_at || "") + " → " + (halt.end_at || "");
-      el("why").textContent = reminder
+      const why = reminder
         ? `${halt.kind || "event"} · ${halt.modality || ""} · ${labels[halt.purpose] || halt.purpose}`
         : "Meeting now";
+      el("meta").innerHTML = reminder
+        ? `<span class="chip">${halt.kind || "event"}</span><span class="chip">${halt.modality || "—"}</span>`
+        : `<span class="chip">Meeting</span>`;
+      el("copy").textContent = why;
       el("join").style.display = halt.join_url ? "inline-block" : "none";
       el("headed").style.display = reminder && halt.modality === "physical" ? "inline-block" : "none";
       el("in").style.display = reminder ? "none" : "inline-block";

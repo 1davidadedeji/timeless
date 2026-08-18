@@ -10,6 +10,7 @@
   <div class="wrap">
     <header class="top top-row">
       <div>
+        <p class="shell-kicker" style="margin-bottom:0.35rem">Dashboard</p>
         <h1>Timeless</h1>
         <p class="sub" id="status">Loading…</p>
       </div>
@@ -25,53 +26,46 @@
         </div>
       </div>
     </header>
-    <main class="flow">
-      <div class="band band-year">
-        <section class="card compact">
+    <main class="dash-grid">
+      <section class="card tile tile-year compact">
+        <div class="card-head-inline">
           <h2>Year</h2>
-          <details class="fold" open>
-            <summary>Activity</summary>
-            <div id="heat"></div>
-          </details>
-        </section>
-        <section class="card compact">
-          <h2>Plan</h2>
-          <div id="plan"></div>
-        </section>
-      </div>
-      <section class="card">
-        <h2>Events</h2>
-        <div class="scroll" id="meetings"></div>
+          <span class="card-meta" id="heat-meta"></span>
+        </div>
+        <div id="heat"></div>
       </section>
-      <section class="card">
+      <section class="card tile tile-today compact">
+        <div id="plan"></div>
+      </section>
+      <section class="card tile tile-approvals">
         <h2>Approvals</h2>
         <div class="scroll" id="approvals"></div>
       </section>
-      <div class="band band-prog">
-        <section class="card">
-          <h2>Programs</h2>
-          <div class="scroll" id="opps"></div>
-        </section>
-        <section class="card compact">
-          <h2>Rituals</h2>
-          <div id="rituals"></div>
-        </section>
-      </div>
-      <div class="band">
-        <section class="card">
-          <h2>Mail</h2>
-          <div class="scroll" id="mail"></div>
-        </section>
-        <section class="card">
-          <h2>Sensors</h2>
-          <div class="row phone-bar">
-            <button type="button" id="ph-w">Wireless</button>
-            <button type="button" class="ghost" id="ph-u">USB</button>
-          </div>
-          <p class="sub" id="phone-msg">Reconnect the phone when this Mac is on its hotspot, or with USB.</p>
-          <div class="scroll" id="heart"></div>
-        </section>
-      </div>
+      <section class="card tile tile-events">
+        <h2>Events</h2>
+        <div class="scroll" id="meetings"></div>
+      </section>
+      <section class="card tile tile-programs">
+        <h2>Programs</h2>
+        <div class="scroll" id="opps"></div>
+      </section>
+      <section class="card tile tile-rituals compact">
+        <h2>Rituals</h2>
+        <div id="rituals"></div>
+      </section>
+      <section class="card tile tile-mail">
+        <h2>Mail</h2>
+        <div class="scroll" id="mail"></div>
+      </section>
+      <section class="card tile tile-sensors compact">
+        <h2>Sensors</h2>
+        <div class="row phone-bar">
+          <button type="button" id="ph-w">Wireless</button>
+          <button type="button" class="ghost" id="ph-u">USB</button>
+        </div>
+        <p class="sub" id="phone-msg">Reconnect the phone when this Mac is on its hotspot, or with USB.</p>
+        <div class="scroll" id="heart"></div>
+      </section>
     </main>
   </div>
   <div class="fab" id="fab">
@@ -116,13 +110,77 @@
       if (Number.isNaN(d.getTime())) return iso;
       return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     }
-    function snippet(payload) {
-      if (!payload || typeof payload !== "object") return "";
-      return Object.entries(payload)
-        .filter(([, v]) => v != null && v !== "")
-        .slice(0, 3)
-        .map(([k, v]) => `${k.replace(/_/g, " ")} ${String(v).slice(0, 72)}`)
-        .join(" · ");
+    function approvalFields(kind, payload) {
+      const p = payload || {};
+      const line = (label, value, quote) => (value != null && value !== "" ? { label, value: String(value), quote } : null);
+      const skip = new Set(["opportunity_id", "prompt", "risky", "target"]);
+      switch (kind) {
+        case "mark_applied":
+        case "opportunity_applied":
+          return {
+            title: "Mark as applied",
+            lines: [line("Posting", p.url), line("Evidence", p.snippet, true)].filter(Boolean),
+          };
+        case "opportunity_skip":
+        case "mark_skipped":
+          return {
+            title: "Skip this posting",
+            lines: [line("Posting", p.url), line("Reason", p.snippet, true)].filter(Boolean),
+            hint: "Skip stops reminders. Keep seen if you might reapply.",
+          };
+        case "do_send":
+          return {
+            title: "Blocked risky action",
+            lines: [
+              line("Action", p.label || p.action),
+              line("Type", p.action && p.action.replace(/_/g, " ")),
+              line("Target", p.url),
+            ].filter(Boolean),
+            hint: "Accept records intent only — nothing is sent.",
+          };
+        case "pin_ritual":
+          return {
+            title: "Pin ritual",
+            lines: [line("Name", p.name), line("URL", p.launch_url), line("Host", p.match_host)].filter(Boolean),
+          };
+        case "keep_seen":
+          return {
+            title: "Keep as seen",
+            lines: [line("Posting", p.url), line("Note", p.snippet, true)].filter(Boolean),
+          };
+        default:
+          return {
+            title: kind.replace(/_/g, " "),
+            lines: Object.entries(p)
+              .filter(([k, v]) => !skip.has(k) && v != null && v !== "")
+              .slice(0, 4)
+              .map(([k, v]) => line(k.replace(/_/g, " "), v)),
+          };
+      }
+    }
+    function approvalHtml(a) {
+      const f = approvalFields(a.kind, a.payload);
+      const body = f.lines.length
+        ? f.lines.map((l) =>
+            `<div class="approval-field${l.quote ? " quote" : ""}">
+              <span class="approval-label">${esc(l.label)}</span>
+              <span class="approval-value">${esc(l.value.length > 160 ? l.value.slice(0, 157) + "…" : l.value)}</span>
+            </div>`
+          ).join("")
+        : `<p class="approval-empty">No details.</p>`;
+      return `<article class="approval-item">
+        <header class="approval-head">
+          <strong class="approval-title">${esc(f.title)}</strong>
+          <span class="chip">${esc(a.kind.replace(/_/g, " "))}</span>
+        </header>
+        <div class="approval-body">${body}</div>
+        ${f.hint ? `<p class="approval-hint">${esc(f.hint)}</p>` : ""}
+        <div class="approval-actions">
+          <button data-id="${a.id}" data-act="accept">Accept</button>
+          <button class="ghost" data-id="${a.id}" data-act="keep">Keep seen</button>
+          <button class="ghost" data-id="${a.id}" data-act="reject">Ignore</button>
+        </div>
+      </article>`;
     }
     let lastMain = "";
     let lastSide = "";
@@ -136,8 +194,9 @@
     }
     function blockHtml(b) {
       return `<div class="block-row" data-block>
-        <div><label>Start</label><button type="button" class="time-btn" data-k="start">${esc(b.start || "09:00")}</button></div>
-        <div><label>End</label><button type="button" class="time-btn" data-k="end">${esc(b.end || "10:00")}</button></div>
+        <button type="button" class="time-btn" data-k="start" title="Start">${esc(b.start || "09:00")}</button>
+        <span class="block-sep">–</span>
+        <button type="button" class="time-btn" data-k="end" title="End">${esc(b.end || "10:00")}</button>
         <input class="task" data-k="task" placeholder="What you'll do" value="${esc(b.task || "")}" />
       </div>`;
     }
@@ -148,18 +207,20 @@
       const blocks = (plan.timeline && plan.timeline.length)
         ? plan.timeline.map(blockHtml).join("")
         : blockHtml({ start: "09:00", end: "10:00", task: "" });
-      el("plan").innerHTML = `<label>Day</label>
-        <input type="date" id="plan-day" value="${esc(planDay)}" min="${esc(t.day)}" />
-        <label>What done means</label>
-        <textarea id="outcomes">${esc(plan.outcomes || "")}</textarea>
-        <details class="fold" open>
-          <summary>Time blocks</summary>
+      el("plan").innerHTML = `<div class="card-head-inline">
+          <h2>Today</h2>
+          <input type="date" id="plan-day" class="inline-date" value="${esc(planDay)}" min="${esc(t.day)}" />
+        </div>
+        <label class="compact-label">Done means</label>
+        <textarea id="outcomes" class="compact-area" rows="2" placeholder="What counts as a win today">${esc(plan.outcomes || "")}</textarea>
+        <div class="plan-blocks">
+          <div class="plan-blocks-head"><span>Blocks</span></div>
           <div id="plan-rows">${blocks}</div>
-          <div class="row">
-            <button type="button" class="ghost" id="add-block">Add block</button>
-            <button type="button" id="save-plan">Save plan</button>
+          <div class="plan-actions">
+            <button type="button" class="ghost" id="add-block">+ Block</button>
+            <button type="button" id="save-plan">Save</button>
           </div>
-        </details>`;
+        </div>`;
       el("meetings").innerHTML = t.meetings.length
         ? `<table class="grid-table"><thead><tr><th>When</th><th>Title</th><th>Type</th><th>Join</th></tr></thead><tbody>` +
           t.meetings.map((m) => `<tr>
@@ -189,14 +250,8 @@
           </tr>`).join("") + `</tbody></table><p class="sub">Change a field and it saves.</p>`
         : "<p>No postings yet.</p>";
       el("approvals").innerHTML = t.approvals.length
-        ? t.approvals.map((a) => `<div class="item"><span class="chip">${esc(a.kind.replace(/_/g, " "))}</span>
-            <p>${esc(snippet(a.payload))}</p>
-            <div class="row">
-              <button data-id="${a.id}" data-act="accept">Accept</button>
-              <button class="ghost" data-id="${a.id}" data-act="keep">Keep seen</button>
-              <button class="ghost" data-id="${a.id}" data-act="reject">Ignore</button>
-            </div></div>`).join("")
-        : "<p>None pending.</p>";
+        ? `<div class="approval-list">${t.approvals.map(approvalHtml).join("")}</div>`
+        : "<p class=\"empty-note\">None pending.</p>";
       el("mail").innerHTML = t.mail.length
         ? `<table class="grid-table"><thead><tr><th>Type</th><th>Subject</th></tr></thead><tbody>` +
           t.mail.map((m) => `<tr><td><span class="chip">${esc(m.classification)}</span></td><td>${esc(m.subject)}</td></tr>`).join("") +
@@ -209,7 +264,13 @@
         : "<p>No rituals pinned.</p>";
     }
     async function paintSide(t) {
-      const heat = (t.heatmap || []).map((d) => {
+      const days = t.heatmap || [];
+      const active = days.filter((d) => (d.count || 0) > 0).length;
+      const total = days.reduce((n, d) => n + (d.count || 0), 0);
+      el("heat-meta").textContent = days.length
+        ? `${active} active · ${total} events`
+        : "";
+      const heat = days.map((d) => {
         const n = d.count || 0;
         const lvl = n === 0 ? 0 : n < 3 ? 1 : n < 8 ? 2 : n < 20 ? 3 : 4;
         return `<span class="cell" title="${esc(d.day)}: ${n}" data-lvl="${lvl}"></span>`;

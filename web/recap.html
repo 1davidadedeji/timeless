@@ -5,36 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Timeless recap</title>
   <link rel="stylesheet" href="/static/style.css" />
-  <style>
-    html, body { margin: 0; min-height: 100%; }
-    .stage { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 24px; overflow: auto; }
-    .ticket {
-      position: relative; z-index: 1;
-      width: min(380px, 92vw); min-height: 0; border: 1px solid var(--accent, #c4a35a); padding: 28px 24px 22px;
-      display: flex; flex-direction: column; box-shadow: 0 0 0 8px var(--bg, #070707), 0 0 0 9px color-mix(in srgb, var(--accent, #c4a35a) 14%, transparent);
-    }
-    .k { font-size: 11px; letter-spacing: .42em; text-transform: uppercase; color: var(--accent, #c4a35a); }
-    h1 { font-weight: 400; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; margin: 28px 0 8px; }
-    .stat { font-size: 64px; line-height: .9; font-weight: 700; margin: 8px 0 4px; letter-spacing: -.04em; }
-    .bar { height: 1px; background: linear-gradient(90deg, var(--accent, #c4a35a), transparent); margin: 0 0 16px; }
-    .body { margin: 0 0 10px; color: #b9b09a; font-size: 15px; line-height: 1.45; }
-    .dots { display: flex; gap: 6px; margin-bottom: 18px; }
-    .dots i { width: 6px; height: 6px; border-radius: 50%; background: #333; display: block; }
-    .dots i.on { background: var(--accent, #c4a35a); }
-    .ticket .nav-row { margin-top: 18px; }
-    .ticket.card:hover, .ticket.card:focus-within { transform: none; }
-  </style>
 </head>
 <body>
-  <div class="stage">
-    <div class="ticket card" id="card">
-      <div class="dots" id="dots"></div>
-      <div class="k" id="kicker">Recap</div>
-      <h1 id="title">Loading</h1>
-      <div class="stat" id="stat">—</div>
+  <div class="recap-stage">
+    <div class="recap-ticket card" id="card">
+      <div class="recap-dots" id="dots"></div>
+      <div class="recap-kicker" id="kicker">Recap</div>
+      <h1 class="recap-title" id="title">Loading</h1>
+      <div class="recap-stat" id="stat">—</div>
       <div class="stat-label" id="stat-label"></div>
-      <div class="bar"></div>
-      <p class="body" id="body">Pulling the day, including the phone if it will answer.</p>
+      <div class="recap-bar"></div>
+      <p class="recap-body" id="body">Pulling the day, including the phone if it will answer.</p>
       <div id="extra"></div>
       <div class="nav-row" id="nav" hidden>
         <button type="button" class="ghost" id="prev">Prev</button>
@@ -69,7 +50,7 @@
           ${barRow("Planned", c.compare.blocks, max)}
           ${barRow("Showed up", c.compare.events, max)}
         </div>
-        <p class="body">Last seven days (notes logged)</p>
+        <p class="recap-body">Last seven days (notes logged)</p>
         <div class="week-bars">` +
           (c.compare.week || []).map((d) => {
             const h = Math.max(4, Math.round((d.events / Math.max(...c.compare.week.map((x) => x.events), 1)) * 72));
@@ -97,10 +78,11 @@
       if (!actions) {
         actions = document.createElement("div");
         actions.id = "phone-actions";
+        actions.className = "plan-actions";
         actions.innerHTML = `<button type="button" id="ph-w">Wireless</button>
           <button type="button" id="ph-u">USB</button>
-          <button type="button" id="ph-s" class="ghost" style="margin-top:8px">Skip</button>
-          <p id="ph-msg" class="sub" style="margin-top:12px"></p>`;
+          <button type="button" id="ph-s" class="ghost">Skip</button>
+          <p id="ph-msg" class="sub" style="margin-top:0.55rem;width:100%"></p>`;
         el("card").appendChild(actions);
         const msg = () => document.getElementById("ph-msg");
         const run = async (body) => {

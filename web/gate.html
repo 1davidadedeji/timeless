@@ -9,17 +9,22 @@
 <body>
   <div class="overlay">
     <div class="panel card">
-      <h1>Lock a plan</h1>
-      <p class="sub">Today stays locked until this day’s plan is saved. You can also set a day ahead.</p>
-      <label>Day</label>
-      <input type="date" id="plan-day" />
-      <label>What done means</label>
-      <textarea id="outcomes" placeholder="In plain words, what finished looks like" autofocus></textarea>
-      <label>Time blocks</label>
-      <p class="sub">Drag the clock hands like an alarm. Inner ring is the hour, outer ring is the minute.</p>
-      <div id="blocks"></div>
-      <div class="row">
-        <button type="button" class="ghost" id="add-block">Add block</button>
+      <p class="shell-kicker">Daily gate</p>
+      <h1 class="shell-title">Lock a plan</h1>
+      <p class="shell-lead">Today stays locked until this day’s plan is saved. You can also set a day ahead.</p>
+      <div class="card-head-inline shell-section">
+        <label class="compact-label" for="plan-day">Day</label>
+        <input type="date" id="plan-day" class="inline-date" />
+      </div>
+      <label class="compact-label" for="outcomes">What done means</label>
+      <textarea id="outcomes" class="compact-area" rows="3" placeholder="In plain words, what finished looks like" autofocus></textarea>
+      <div class="shell-section">
+        <p class="shell-section-head">Time blocks</p>
+        <p class="sub" style="margin:0 0 0.45rem">Drag the clock hands like an alarm. Inner ring is the hour, outer ring is the minute.</p>
+        <div id="blocks"></div>
+      </div>
+      <div class="plan-actions">
+        <button type="button" class="ghost" id="add-block">+ Block</button>
         <button type="button" id="lock">Lock plan</button>
       </div>
       <p class="miss" id="err"></p>
@@ -32,7 +37,7 @@
     let today = "";
     function blockEl(start, end, task) {
       const wrap = document.createElement("div");
-      wrap.className = "block-row";
+      wrap.className = "block-row block-analog";
       wrap.innerHTML = `<div><label>Start</label><div data-start></div></div>
         <div><label>End</label><div data-end></div></div>
         <input class="task" placeholder="What you'll do" value="${(task || "").replace(/"/g, "&quot;")}" />`;
