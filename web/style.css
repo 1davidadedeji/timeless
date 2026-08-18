@@ -62,11 +62,30 @@ h1 {
   border-radius: 12px;
   padding: 1rem 1.1rem 1.15rem;
   overflow: hidden;
-  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
 }
-.card:hover {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
-  box-shadow: 0 8px 28px color-mix(in srgb, var(--accent) 8%, transparent);
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 58%),
+    radial-gradient(90% 70% at 100% 100%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 50%);
+  opacity: 0;
+  transform: scale(1.04);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+.card > * { position: relative; z-index: 1; }
+.card:hover, .card:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: 0 10px 36px color-mix(in srgb, var(--accent) 16%, transparent);
+  transform: translateY(-1px);
+}
+.card:hover::before, .card:focus-within::before {
+  opacity: 1;
+  transform: scale(1);
 }
 .card h2 {
   font-family: "Arial Narrow", var(--sans);
@@ -112,13 +131,7 @@ button.ghost { background: transparent; color: var(--ink); border: 1px solid #44
   padding: 1rem;
   overflow: auto;
 }
-.overlay .panel {
-  width: min(560px, 100%);
-  max-height: min(92dvh, 760px);
-  overflow: auto;
-  position: relative;
-  z-index: 1001;
-}
+.overlay .card:hover, .overlay .card:focus-within { transform: none; }
 .hidden { display: none !important; }
 .praise { color: var(--ok); }
 .miss { color: var(--danger); }
@@ -160,7 +173,6 @@ label { display: block; margin: 0.6rem 0 0.25rem; color: var(--muted); font-size
   background: transparent; color: var(--ink); border: 1px solid var(--line);
   font-size: 0.75rem; padding: 0.3rem 0.55rem;
 }
-.phone-bar { margin-bottom: 0.5rem; }
 #heat { overflow-x: auto; max-width: 100%; }
 .heat {
   display: grid;
@@ -206,12 +218,28 @@ code { display: inline; padding: 0.1rem 0.25rem; }
 .grid-table td { padding: 0.45rem; vertical-align: top; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .grid-table input, .grid-table select { width: 100%; padding: 0.35rem 0.45rem; }
 .chip {
-  display: inline-flex; align-items: center; gap: 0.3rem;
-  font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--accent); border: 1px solid var(--line); border-radius: 999px; padding: 0.15rem 0.5rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--accent); border: 1px solid var(--line); border-radius: 999px;
+  padding: 0.12rem 0.55rem; line-height: 1.2; background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.chip.ok { color: var(--ok); }
-.chip.stale { color: var(--danger); }
+.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); background: color-mix(in srgb, var(--ok) 16%, transparent); }
+.chip.stale { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.sensors { display: flex; flex-direction: column; gap: 0.55rem; }
+.sensor {
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+  min-width: 0;
+}
+.sensor-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-width: 0; }
+.sensor-name { font-size: 0.88rem; font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.sensor-meta { margin: 0.28rem 0 0; color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
+.phone-bar { margin-bottom: 0.5rem; }
+.phone-bar button { flex: 1 1 7rem; min-width: 0; }
 .top-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
 .theme-wrap { position: relative; }
 .theme-toggle {
@@ -247,7 +275,7 @@ code { display: inline; padding: 0.1rem 0.25rem; }
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
-@media (max-width: 720px) {
+@media (max-width: 900px) {
   .band { grid-template-columns: minmax(0, 1fr); }
   .wrap { padding: 1rem 0.75rem 2.5rem; }
   .scroll { max-height: none; }

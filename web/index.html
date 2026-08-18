@@ -191,13 +191,18 @@
       }).join("");
       el("heat").innerHTML = `<div class="heat">${heat}</div>`;
       el("heart").innerHTML = t.heartbeats.length
-        ? `<table class="grid-table"><thead><tr><th>Sensor</th><th>Seen</th><th></th><th>Detail</th></tr></thead><tbody>` +
+        ? `<div class="sensors">` +
           t.heartbeats.map((h) => {
             const stale = (Date.now() - Date.parse((h.last_seen || "").endsWith("Z") ? h.last_seen : h.last_seen + "Z")) > 30 * 60 * 1000;
-            return `<tr><td>${esc(h.sensor)}</td><td>${esc(ago(h.last_seen))}</td>
-              <td><span class="chip ${stale ? "stale" : "ok"}">${stale ? "stale" : "ok"}</span></td>
-              <td class="sub">${esc((h.detail || "").slice(0, 80))}</td></tr>`;
-          }).join("") + `</tbody></table>`
+            const detail = (h.detail || "").slice(0, 120);
+            return `<div class="sensor">
+              <div class="sensor-top">
+                <span class="sensor-name">${esc(h.sensor)}</span>
+                <span class="chip ${stale ? "stale" : "ok"}">${stale ? "stale" : "ok"}</span>
+              </div>
+              <p class="sensor-meta">${esc(ago(h.last_seen))}${detail ? " · " + esc(detail) : ""}</p>
+            </div>`;
+          }).join("") + `</div>`
         : "<p>No sensors yet.</p>";
       try {
         const a = await api("/api/access");
