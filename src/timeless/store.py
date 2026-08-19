@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -10,6 +11,7 @@ from timeless.db import connect
 from timeless.ingest import classify_screen_text, looks_like_job_url
 from timeless.mailer import first_url, parse_when, program_kind
 from timeless.praise import praise_for
+from timeless.quiet import PANIC_MINUTES, QUIET_LEVELS, blocks_halt, end_from_minutes, iso as quiet_iso, parse_iso, quiet_public
 from timeless.reminders import reminder_fires
 
 VALID_STATES = frozenset(
@@ -356,12 +358,16 @@ class Store:
         else:
             opp = None
         if kind == "confirmation":
+            if self.is_dormant():
+                return {"kind": kind, "skipped": "dormant"}
             approval = self.propose(
                 "mark_applied",
                 {"opportunity_id": opp["id"] if opp else None, "url": url, "snippet": text[:280]},
             )
             return {"kind": kind, "approval": approval}
         if kind == "requirement_miss":
+            if self.is_dormant():
+                return {"kind": kind, "skipped": "dormant"}
             approval = self.propose(
                 "opportunity_skip",
                 {
@@ -545,7 +551,196 @@ class Store:
                 """,
                 (uid, purpose, _iso(due.astimezone(timezone.utc))),
             )
+        self._maybe_auto_interview_quiet(row_to_dict(row))
         self.conn.commit()
+
+    def _maybe_auto_interview_quiet(self, meeting: dict[str, Any]) -> None:
+        kind = (meeting.get("kind") or "").lower()
+        title = meeting.get("title") or ""
+        if kind != "interview" and not re.search(r"\binterview\b", title, re.I):
+            return
+        start = parse_iso(meeting["start_at"])
+        end = parse_iso(meeting["end_at"])
+        now = _now()
+        if start.astimezone(timezone.utc) < now - timedelta(hours=1):
+            return
+        self.ensure_auto_quiet(
+            meeting_id=int(meeting["id"]),
+            level="quiet",
+            starts_at=quiet_iso(start - timedelta(minutes=5)),
+            ends_at=quiet_iso(end + timedelta(minutes=5)),
+            reason=f"Interview: {title[:80]}",
+            source="auto_interview",
+        )
+
+    def ensure_auto_quiet(
+        self,
+        *,
+        meeting_id: int,
+        level: str,
+        starts_at: str,
+        ends_at: str,
+        reason: str,
+        source: str,
+    ) -> dict[str, Any] | None:
+        existing = self.conn.execute(
+            "SELECT * FROM quiet_periods WHERE meeting_id=? AND source=? LIMIT 1",
+            (meeting_id, source),
+        ).fetchone()
+        if existing:
+            return row_to_dict(existing)
+        return self.create_quiet(
+            level=level,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            reason=reason,
+            source=source,
+            meeting_id=meeting_id,
+        )
+
+    def create_quiet(
+        self,
+        *,
+        level: str,
+        starts_at: str | None = None,
+        ends_at: str | None = None,
+        minutes: int | None = None,
+        reason: str | None = None,
+        source: str = "manual",
+        meeting_id: int | None = None,
+    ) -> dict[str, Any]:
+        if level not in QUIET_LEVELS:
+            raise ValueError("level must be mild, quiet, or dormant")
+        now = _now()
+        start_s = starts_at or _iso(now)
+        if ends_at:
+            end_s = ends_at
+        elif minutes is not None:
+            end_s = end_from_minutes(minutes, now)
+        else:
+            end_s = end_from_minutes(60, now)
+        if parse_iso(end_s) <= parse_iso(start_s):
+            raise ValueError("ends_at must be after starts_at")
+        cur = self.conn.execute(
+            """
+            INSERT INTO quiet_periods(level, starts_at, ends_at, reason, source, meeting_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (level, start_s, end_s, reason, source, meeting_id),
+        )
+        self.conn.commit()
+        return row_to_dict(self.conn.execute("SELECT * FROM quiet_periods WHERE id=?", (cur.lastrowid,)).fetchone())
+
+    def end_quiet(self, quiet_id: int) -> dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM quiet_periods WHERE id=?", (quiet_id,)).fetchone()
+        if not row:
+            raise ValueError("unknown quiet period")
+        now_s = _iso()
+        self.conn.execute("UPDATE quiet_periods SET ends_at=? WHERE id=?", (now_s, quiet_id))
+        self.conn.commit()
+        return row_to_dict(self.conn.execute("SELECT * FROM quiet_periods WHERE id=?", (quiet_id,)).fetchone())
+
+    def panic_quiet(self) -> dict[str, Any]:
+        return self.create_quiet(level="dormant", minutes=PANIC_MINUTES, reason="panic", source="manual")
+
+    def list_quiet(self, now: datetime | None = None) -> list[dict[str, Any]]:
+        now_s = _iso(now or _now())
+        rows = self.conn.execute(
+            """
+            SELECT * FROM quiet_periods
+            WHERE ends_at > ?
+            ORDER BY starts_at
+            """,
+            (now_s,),
+        )
+        return [row_to_dict(r) for r in rows]
+
+    def active_quiet(self, now: datetime | None = None) -> dict[str, Any] | None:
+        now_dt = now or _now()
+        now_s = _iso(now_dt)
+        row = self.conn.execute(
+            """
+            SELECT * FROM quiet_periods
+            WHERE starts_at <= ? AND ends_at > ?
+            ORDER BY CASE level WHEN 'dormant' THEN 0 WHEN 'quiet' THEN 1 ELSE 2 END
+            LIMIT 1
+            """,
+            (now_s, now_s),
+        ).fetchone()
+        return quiet_public(row_to_dict(row), now_dt) if row else None
+
+    def is_dormant(self, now: datetime | None = None) -> bool:
+        q = self.active_quiet(now)
+        return bool(q and q.get("level") == "dormant")
+
+    def quiet_summary(self, now: datetime | None = None) -> dict[str, Any] | None:
+        return self.active_quiet(now)
+
+    def _meeting_join_url(self, data: dict[str, Any]) -> str | None:
+        return pick_join_url(data.get("join_url"), data.get("notes"), data.get("location"))
+
+    def _sanitize_halt(self, data: dict[str, Any]) -> dict[str, Any]:
+        if not data:
+            return data
+        cleaned = pick_join_url(data.get("join_url"), data.get("notes"), data.get("location"))
+        if cleaned:
+            data["join_url"] = cleaned
+        return data
+
+    def _meeting_for_halt(self, data: dict[str, Any]) -> dict[str, Any]:
+        if data.get("halt_kind") == "reminder":
+            mid = data.get("meeting_id")
+            if mid:
+                row = self.conn.execute("SELECT * FROM meetings WHERE id=?", (mid,)).fetchone()
+                if row:
+                    return row_to_dict(row)
+        if data.get("id") and not data.get("halt_kind"):
+            row = self.conn.execute("SELECT * FROM meetings WHERE id=?", (data["id"],)).fetchone()
+            if row:
+                return row_to_dict(row)
+        return data
+
+    def _enrich_halt(self, data: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not data:
+            return data
+        out = self._sanitize_halt(dict(data))
+        meeting = self._meeting_for_halt(out)
+        join_url = self._meeting_join_url(meeting) or out.get("join_url")
+        modality = (meeting.get("modality") or out.get("modality") or "virtual").lower()
+        physical = modality == "physical"
+        out["requires_join"] = bool(join_url) and not physical
+        out["can_im_in"] = not out["requires_join"]
+        if out["requires_join"]:
+            out["im_in_hint"] = "Join opens the meeting link. I'm in is disabled for virtual calls."
+        elif physical:
+            out["im_in_hint"] = "Tap twice to confirm you are on site."
+        else:
+            out["im_in_hint"] = "Tap twice to confirm you are on the call."
+        return out
+
+    def join_meeting(self, meeting_id: int, reminder_id: int | None = None) -> dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM meetings WHERE id=?", (meeting_id,)).fetchone()
+        if not row:
+            raise ValueError("unknown meeting")
+        data = row_to_dict(row)
+        url = self._meeting_join_url(data)
+        if not url:
+            raise ValueError("no join link for this meeting")
+        from timeless.hands import run as run_hands
+
+        run_hands({"action": "open_url", "target": "mac", "url": url})
+        try:
+            run_hands({"action": "open_url", "target": "phone", "url": url})
+        except Exception:
+            pass
+        out = self.ack_meeting(meeting_id, "join")
+        if reminder_id is not None:
+            self.conn.execute(
+                "UPDATE reminders SET acked_at=? WHERE id=? AND acked_at IS NULL",
+                (_iso(), reminder_id),
+            )
+            self.conn.commit()
+        return {"ok": True, "url": url, "meeting": out}
 
     def due_reminder(self, now: datetime | None = None) -> dict[str, Any] | None:
         now_dt = now or _now()
@@ -565,7 +760,7 @@ class Store:
         ).fetchone()
         if not row:
             return None
-        data = row_to_dict(row)
+        data = self._enrich_halt(row_to_dict(row))
         data["halt_kind"] = "reminder"
         return data
 
@@ -585,12 +780,20 @@ class Store:
         self.conn.commit()
         return row_to_dict(self.conn.execute("SELECT * FROM reminders WHERE id=?", (reminder_id,)).fetchone())
 
-    def ack_meeting(self, meeting_id: int, action: str) -> dict[str, Any]:
+    def ack_meeting(self, meeting_id: int, action: str, *, confirm: bool = False) -> dict[str, Any]:
         if action not in MEETING_ACKS:
             raise ValueError("action must be join or im_in")
         row = self.conn.execute("SELECT * FROM meetings WHERE id=?", (meeting_id,)).fetchone()
         if not row:
             raise ValueError("unknown meeting")
+        data = row_to_dict(row)
+        if action == "im_in":
+            join_url = self._meeting_join_url(data)
+            virtual = (data.get("modality") or "virtual").lower() != "physical"
+            if join_url and virtual:
+                raise ValueError("use Join for virtual meetings with a link")
+            if not confirm:
+                raise ValueError("confirm check-in required")
         self.conn.execute(
             "UPDATE meetings SET ack=?, acked_at=? WHERE id=?",
             (action, _iso(), meeting_id),
@@ -610,8 +813,7 @@ class Store:
         self.conn.commit()
         return cur.rowcount
 
-    def active_halt(self, now: datetime | None = None) -> dict[str, Any] | None:
-        self.close_elapsed_meetings(now)
+    def _raw_active_halt(self, now: datetime | None = None) -> dict[str, Any] | None:
         due = self.due_reminder(now)
         if due:
             return due
@@ -624,7 +826,25 @@ class Store:
             """,
             (now_s, now_s),
         ).fetchone()
-        return row_to_dict(row) if row else None
+        if not row:
+            return None
+        return self._enrich_halt(row_to_dict(row))
+
+    def active_halt(self, now: datetime | None = None) -> dict[str, Any] | None:
+        self.close_elapsed_meetings(now)
+        raw = self._raw_active_halt(now)
+        if not raw:
+            return None
+        quiet = self.active_quiet(now)
+        if quiet and blocks_halt(quiet["level"]):
+            title = raw.get("title") or "halt"
+            self.heartbeat("quiet_mute", f"{quiet['level']}:{title}")
+            return None
+        if quiet and quiet["level"] == "mild":
+            out = dict(raw)
+            out["presentation"] = "banner"
+            return out
+        return raw
 
     def list_meetings(self) -> list[dict[str, Any]]:
         return [row_to_dict(r) for r in self.conn.execute("SELECT * FROM meetings ORDER BY start_at")]

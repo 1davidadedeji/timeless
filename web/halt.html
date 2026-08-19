@@ -2,11 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0c0c0c" />
   <title>Timeless — halt</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
-<body>
+<body class="halt-page">
   <div class="overlay">
     <div class="panel card">
       <p class="shell-kicker">Halt</p>
@@ -14,6 +17,8 @@
       <h1 class="shell-title" id="title">Event</h1>
       <p class="sub" id="when"></p>
       <p class="halt-copy" id="copy">Acknowledge this, then you can continue.</p>
+      <p class="halt-hint" id="hint"></p>
+      <div class="halt-status-slot"><p class="halt-status" id="status" hidden></p></div>
       <div class="row" id="typebox" style="display:none">
         <button type="button" id="confirm">That's right</button>
         <button type="button" class="ghost" data-k="meeting" data-m="virtual">Virtual meeting</button>
@@ -22,7 +27,7 @@
         <button type="button" class="ghost" data-k="hackathon" data-m="physical">In-person hackathon</button>
         <button type="button" class="ghost" data-k="conference" data-m="physical">Conference</button>
       </div>
-      <div class="plan-actions">
+      <div class="plan-actions" id="actions">
         <button type="button" id="join">Join</button>
         <button type="button" class="ghost" id="headed">I'm headed</button>
         <button type="button" class="ghost" id="in">I'm in</button>
@@ -30,13 +35,55 @@
       </div>
     </div>
   </div>
+  <button type="button" class="panic-btn" id="panic">Panic · 1h quiet</button>
   <script src="/static/theme.js"></script>
   <script src="/static/app.js"></script>
   <script>
     const labels = { start_30m: "30 min · virtual", start_2h: "2 hours · leave soon", start_1d: "Tomorrow · prep", submit_4h: "4 hours · submit", present_30m: "30 min · present" };
     let halt = null;
     let miss = 0;
+    let busy = false;
+    let imInArmed = false;
+
+    function meetingId() {
+      return halt && (halt.meeting_id || halt.id);
+    }
+    function setStatus(msg, ok) {
+      const s = el("status");
+      s.hidden = !msg;
+      s.textContent = msg || "";
+      s.className = "halt-status" + (ok ? " praise" : msg ? " miss" : "");
+    }
+    function setBusy(on) {
+      busy = on;
+      el("actions").querySelectorAll("button").forEach((b) => { b.disabled = on; });
+    }
+    async function leaveAfter(msg, ok) {
+      setStatus(msg, ok);
+      await new Promise((r) => setTimeout(r, 1100));
+      location.href = "/";
+    }
+    function syncImInButton() {
+      const btn = el("in");
+      if (!halt || !halt.can_im_in) {
+        btn.style.display = "none";
+        return;
+      }
+      const reminder = halt.halt_kind === "reminder";
+      const virtualish = halt.modality === "virtual" || !!halt.join_url;
+      if (reminder && virtualish) {
+        btn.style.display = "none";
+        return;
+      }
+      btn.style.display = "inline-block";
+      btn.textContent = imInArmed ? "Confirm I'm in" : "I'm in";
+      btn.classList.toggle("warn", imInArmed);
+    }
+    function applyPresentation() {
+      document.body.classList.toggle("halt-banner", halt && halt.presentation === "banner");
+    }
     async function tick() {
+      if (busy) return;
       const t = await api("/api/today");
       halt = t.halt;
       if (!halt) {
@@ -46,6 +93,8 @@
         return;
       }
       miss = 0;
+      imInArmed = false;
+      applyPresentation();
       const reminder = halt.halt_kind === "reminder";
       el("title").textContent = halt.title;
       el("when").textContent = (halt.start_at || "") + " → " + (halt.end_at || "");
@@ -56,11 +105,12 @@
         ? `<span class="chip">${halt.kind || "event"}</span><span class="chip">${halt.modality || "—"}</span>`
         : `<span class="chip">Meeting</span>`;
       el("copy").textContent = why;
+      el("hint").textContent = halt.im_in_hint || "";
       el("join").style.display = halt.join_url ? "inline-block" : "none";
       el("headed").style.display = reminder && halt.modality === "physical" ? "inline-block" : "none";
-      el("in").style.display = reminder ? "none" : "inline-block";
       el("dismiss").style.display = reminder ? "inline-block" : "none";
       el("typebox").style.display = reminder && !halt.confirmed ? "flex" : "none";
+      syncImInButton();
     }
     async function ackReminder(action, kind, modality) {
       await api(`/api/reminders/${halt.id}/ack`, {
@@ -69,24 +119,97 @@
       });
     }
     el("join").onclick = async () => {
-      if (!halt) return;
-      if (halt.halt_kind === "reminder") await ackReminder("join");
-      else await api(`/api/meetings/${halt.id}/ack`, { method: "POST", body: JSON.stringify({ action: "join" }) });
-      if (halt.join_url) window.open(halt.join_url, "_blank");
-      location.href = "/";
+      if (!halt || !halt.join_url) return;
+      setBusy(true);
+      try {
+        const body = halt.halt_kind === "reminder" ? { reminder_id: halt.id } : {};
+        const r = await api(`/api/meetings/${meetingId()}/join`, { method: "POST", body: JSON.stringify(body) });
+        await leaveAfter(`Opening ${r.url || "meeting"} on Mac and phone…`, true);
+      } catch (e) {
+        setBusy(false);
+        setStatus(e.message || "Could not join.", false);
+      }
     };
-    el("headed").onclick = async () => { await ackReminder("headed"); location.href = "/"; };
+    el("headed").onclick = async () => {
+      setBusy(true);
+      try {
+        await ackReminder("headed");
+        await leaveAfter("Marked as headed. Safe travels.", true);
+      } catch (e) {
+        setBusy(false);
+        setStatus(e.message, false);
+      }
+    };
     el("in").onclick = async () => {
-      await api(`/api/meetings/${halt.id}/ack`, { method: "POST", body: JSON.stringify({ action: "im_in" }) });
-      location.href = "/";
+      if (!halt || !halt.can_im_in) return;
+      if (!imInArmed) {
+        imInArmed = true;
+        setStatus(halt.im_in_hint || "Tap again to confirm.", true);
+        syncImInButton();
+        return;
+      }
+      setBusy(true);
+      try {
+        await api(`/api/meetings/${meetingId()}/ack`, {
+          method: "POST",
+          body: JSON.stringify({ action: "im_in", confirm: true }),
+        });
+        if (halt.halt_kind === "reminder") {
+          await ackReminder("im_in");
+        }
+        await leaveAfter("Checked in. You're marked in.", true);
+      } catch (e) {
+        setBusy(false);
+        imInArmed = false;
+        syncImInButton();
+        setStatus(e.message, false);
+      }
     };
-    el("dismiss").onclick = async () => { await ackReminder("dismiss"); location.href = "/"; };
-    el("confirm").onclick = async () => { await ackReminder("confirm", halt.kind, halt.modality); await tick(); };
+    el("dismiss").onclick = async () => {
+      setBusy(true);
+      try {
+        await ackReminder("dismiss");
+        await leaveAfter("Reminder dismissed (not checked in).", true);
+      } catch (e) {
+        setBusy(false);
+        setStatus(e.message, false);
+      }
+    };
+    el("confirm").onclick = async () => {
+      setBusy(true);
+      try {
+        await ackReminder("confirm", halt.kind, halt.modality);
+        setBusy(false);
+        setStatus("Type confirmed.", true);
+        await tick();
+      } catch (e) {
+        setBusy(false);
+        setStatus(e.message, false);
+      }
+    };
+    el("panic").onclick = async () => {
+      setBusy(true);
+      try {
+        await api("/api/quiet/panic", { method: "POST" });
+        await leaveAfter("Panic mode · dormant for 1 hour.", true);
+      } catch (e) {
+        setBusy(false);
+        setStatus(e.message, false);
+      }
+    };
     document.body.addEventListener("click", async (e) => {
       const b = e.target;
-      if (!b.dataset.k || !halt) return;
-      await ackReminder("change", b.dataset.k, b.dataset.m);
-      await tick();
+      if (!b.dataset.k || !halt || busy) return;
+      setBusy(true);
+      try {
+        await ackReminder("change", b.dataset.k, b.dataset.m);
+        setBusy(false);
+        setStatus("Updated event type.", true);
+        await tick();
+      } catch (err) {
+        setBusy(false);
+        setStatus(err.message, false);
+      }
     });
     tick();
     setInterval(tick, 4000);

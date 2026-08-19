@@ -74,6 +74,11 @@ class OppStateIn(BaseModel):
 
 class AckIn(BaseModel):
     action: str
+    confirm: bool = False
+
+
+class JoinIn(BaseModel):
+    reminder_id: int | None = None
 
 
 class UrlIn(BaseModel):
@@ -124,6 +129,13 @@ class HeartbeatIn(BaseModel):
     detail: str | None = None
 
 
+class QuietIn(BaseModel):
+    level: str = "quiet"
+    minutes: int | None = 60
+    ends_at: str | None = None
+    reason: str | None = None
+
+
 def create_app(db_path: str | None = None) -> FastAPI:
     db_path = db_path or os.environ.get("TIMELESS_DB", str(DEFAULT_DB))
     store = Store(db_path)
@@ -160,6 +172,13 @@ def create_app(db_path: str | None = None) -> FastAPI:
         now_day = day_key()
         recap = store.get_recap(due_recap_day())
         plan = store.get_plan(now_day)
+        quiet = store.quiet_summary()
+        halt = store.active_halt()
+        muted = None
+        if quiet and quiet.get("level") in {"quiet", "dormant"}:
+            raw = store._raw_active_halt()
+            if raw:
+                muted = {"title": raw.get("title"), "halt_kind": raw.get("halt_kind")}
         return {
             "plan": plan,
             "day": now_day,
@@ -167,7 +186,9 @@ def create_app(db_path: str | None = None) -> FastAPI:
             "needs_gate": plan is None,
             "needs_recap": store.needs_recap(),
             "recap": recap,
-            "halt": store.active_halt(),
+            "halt": halt,
+            "quiet": quiet,
+            "muted_halt": muted,
             "opportunities": store.list_opportunities(),
             "approvals": store.list_approvals(),
             "rituals": store.list_rituals(),
@@ -202,6 +223,34 @@ def create_app(db_path: str | None = None) -> FastAPI:
     @app.post("/api/phone/connect")
     def phone_connect(body: PhoneConnectIn):
         return connect_phone(body.mode)
+
+    @app.get("/api/quiet")
+    def list_quiet():
+        return {"active": store.active_quiet(), "periods": store.list_quiet()}
+
+    @app.post("/api/quiet")
+    def create_quiet(body: QuietIn):
+        try:
+            return store.create_quiet(
+                level=body.level,
+                minutes=body.minutes,
+                ends_at=body.ends_at,
+                reason=body.reason,
+                source="manual",
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.delete("/api/quiet/{quiet_id}")
+    def end_quiet(quiet_id: int):
+        try:
+            return store.end_quiet(quiet_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/quiet/panic")
+    def panic_quiet():
+        return store.panic_quiet()
 
     @app.get("/api/plan")
     def get_plan(day: str | None = None):
@@ -268,7 +317,15 @@ def create_app(db_path: str | None = None) -> FastAPI:
     @app.post("/api/meetings/{meeting_id}/ack")
     def ack(meeting_id: int, body: AckIn):
         try:
-            return store.ack_meeting(meeting_id, body.action)
+            return store.ack_meeting(meeting_id, body.action, confirm=body.confirm)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/meetings/{meeting_id}/join")
+    def meeting_join(meeting_id: int, body: JoinIn | None = None):
+        try:
+            reminder_id = body.reminder_id if body else None
+            return store.join_meeting(meeting_id, reminder_id=reminder_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 

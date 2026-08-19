@@ -114,6 +114,16 @@ CREATE TABLE IF NOT EXISTS daily_recaps (
     generated_at TEXT NOT NULL,
     acked_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS quiet_periods (
+    id INTEGER PRIMARY KEY,
+    level TEXT NOT NULL CHECK (level IN ('mild','quiet','dormant')),
+    starts_at TEXT NOT NULL,
+    ends_at TEXT NOT NULL,
+    reason TEXT,
+    source TEXT NOT NULL,
+    meeting_id INTEGER
+);
 """
 
 def connect(path: str | Path) -> sqlite3.Connection:
@@ -170,6 +180,19 @@ def migrate(conn: sqlite3.Connection) -> None:
             due_at TEXT NOT NULL,
             acked_at TEXT,
             UNIQUE (event_uid, purpose)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS quiet_periods (
+            id INTEGER PRIMARY KEY,
+            level TEXT NOT NULL CHECK (level IN ('mild','quiet','dormant')),
+            starts_at TEXT NOT NULL,
+            ends_at TEXT NOT NULL,
+            reason TEXT,
+            source TEXT NOT NULL,
+            meeting_id INTEGER
         )
         """
     )

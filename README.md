@@ -48,6 +48,12 @@ Calendar.app (EventKit) and Mail.app ingest on a timer. Allow Calendar and Autom
 
 Phone: brain binds `0.0.0.0:8787` with a token (loopback is open). Copy the LAN/Tailscale URL from Sensors. Overlay stays on localhost and **does not use the Dock** (agent policy).
 
+**Halt on phone:** every 2 minutes the phone pull job checks for an active halt. If one exists, it posts an Android notification and opens `/halt` in the phone browser (same token as Sensors). Wireless ADB must be connected.
+
+**Escalation ladder (no Twilio):** `com.timeless.halt-escalate` runs every 60s. Unacked halts ping the phone at +2m, +5m (opens `/halt`), +10m (louder alarm). Skipped during Focus quiet/dormant.
+
+**Focus / Panic:** Dashboard **Focus** button sets quiet/mild/dormant for 15m–2h. **Panic** on the halt screen sets dormant for 1 hour. Interview events auto-enable quiet ±5 minutes around the calendar block.
+
 Wireless ADB after reboot: in `~/Library/Application Support/Timeless/phone-adb.conf` set `ADB_PAIR_HOST`, `ADB_PAIR_PORT`, `ADB_PAIR_CODE` from Wireless debugging → Pair with pairing code. The pull job retries connect + mDNS.
 
 Chrome URLs: `./scripts/install-chrome-aw.sh` then click Add.

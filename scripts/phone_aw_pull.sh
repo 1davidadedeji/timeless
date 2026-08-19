@@ -28,4 +28,5 @@ adb -s "$SERIAL" forward tcp:5666 tcp:5600 >/dev/null
 export AW_URL="http://127.0.0.1:5666"
 export AW_SENSOR="phone_aw"
 export TIMELESS_URL="${TIMELESS_URL:-http://127.0.0.1:8787}"
-exec "$VENV/bin/python" "$ROOT/scripts/aw_ingest.py"
+"$VENV/bin/python" "$ROOT/scripts/aw_ingest.py"
+"$VENV/bin/python" "$ROOT/scripts/phone_halt_notify.py" || true

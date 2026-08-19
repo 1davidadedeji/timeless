@@ -121,7 +121,11 @@ def test_chat_offline_does_not_500(tmp_path):
     assert "offline" in r.json()
 
 
-def test_meeting_ack_api(tmp_path):
+def test_meeting_ack_api(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "timeless.hands.run",
+        lambda intent: {"did": "open_url", "url": intent["url"], "target": intent["target"]},
+    )
     c = client(tmp_path)
     m = c.post(
         "/api/meetings",
@@ -135,7 +139,32 @@ def test_meeting_ack_api(tmp_path):
     ).json()
     halt = c.get("/api/today").json()["halt"]
     assert halt["id"] == m["id"]
-    c.post(f"/api/meetings/{m['id']}/ack", json={"action": "im_in"})
+    assert halt["requires_join"] is True
+    assert halt["can_im_in"] is False
+    bad = c.post(f"/api/meetings/{m['id']}/ack", json={"action": "im_in", "confirm": True})
+    assert bad.status_code == 400
+    c.post(f"/api/meetings/{m['id']}/join")
+    assert c.get("/api/today").json()["halt"] is None
+
+
+def test_im_in_requires_confirm(tmp_path):
+    c = client(tmp_path)
+    m = c.post(
+        "/api/meetings",
+        json={
+            "uid": "phys-1",
+            "title": "On site",
+            "start_at": "2020-01-01T00:00:00Z",
+            "end_at": "2099-01-01T00:00:00Z",
+            "join_url": None,
+        },
+    ).json()
+    c.patch(f"/api/meetings/{m['id']}", json={"modality": "physical"})
+    halt = c.get("/api/today").json()["halt"]
+    assert halt["can_im_in"] is True
+    r = c.post(f"/api/meetings/{m['id']}/ack", json={"action": "im_in"})
+    assert r.status_code == 400
+    c.post(f"/api/meetings/{m['id']}/ack", json={"action": "im_in", "confirm": True})
     assert c.get("/api/today").json()["halt"] is None
 
 
@@ -203,6 +232,54 @@ def test_chat_queues_send_instead_of_sending(tmp_path):
     assert "do_send" in kinds
 
 
+def test_meeting_join_api(monkeypatch, tmp_path):
+    opened = []
+    monkeypatch.setattr(
+        "timeless.hands.run",
+        lambda intent: opened.append(intent) or {"did": "open_url", "url": intent["url"], "target": "mac"},
+    )
+    c = client(tmp_path)
+    m = c.post(
+        "/api/meetings",
+        json={
+            "uid": "join-1",
+            "title": "Standup",
+            "start_at": "2020-01-01T00:00:00Z",
+            "end_at": "2099-01-01T00:00:00Z",
+            "join_url": "https://meet.google.com/abc-defg-hij",
+        },
+    ).json()
+    r = c.post(f"/api/meetings/{m['id']}/join")
+    assert r.status_code == 200
+    assert r.json()["url"] == "https://meet.google.com/abc-defg-hij"
+    assert opened[0]["url"] == "https://meet.google.com/abc-defg-hij"
+    assert c.get("/api/today").json()["halt"] is None
+
+
+def test_meeting_join_cleans_messy_teams_url(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "timeless.hands.run",
+        lambda intent: {"did": "open_url", "url": intent["url"], "target": "mac"},
+    )
+    c = client(tmp_path)
+    dirty = "https://teams.microsoft.com/meet/123?p=abc<https://safelinks.example.com/foo"
+    m = c.post(
+        "/api/meetings",
+        json={
+            "uid": "teams-1",
+            "title": "Teams call",
+            "start_at": "2020-01-01T00:00:00Z",
+            "end_at": "2099-01-01T00:00:00Z",
+            "join_url": dirty,
+        },
+    ).json()
+    halt = c.get("/api/today").json()["halt"]
+    assert halt["join_url"] == "https://teams.microsoft.com/meet/123?p=abc"
+    r = c.post(f"/api/meetings/{m['id']}/join")
+    assert r.status_code == 200
+    assert r.json()["url"] == "https://teams.microsoft.com/meet/123?p=abc"
+
+
 def test_accept_mark_applied_missing_opportunity_returns_400(tmp_path):
     c = client(tmp_path)
     app = create_app(str(tmp_path / "api.db"))
@@ -211,3 +288,33 @@ def test_accept_mark_applied_missing_opportunity_returns_400(tmp_path):
     r = c.post(f"/api/approvals/{approval['id']}/accept")
     assert r.status_code == 400
     assert "posting" in r.json()["detail"].lower()
+
+
+def test_quiet_api(tmp_path):
+    c = client(tmp_path)
+    m = c.post(
+        "/api/meetings",
+        json={
+            "uid": "q1",
+            "title": "Standup",
+            "start_at": "2020-01-01T00:00:00Z",
+            "end_at": "2099-01-01T00:00:00Z",
+        },
+    ).json()
+    assert c.get("/api/today").json()["halt"]["id"] == m["id"]
+    q = c.post("/api/quiet", json={"level": "quiet", "minutes": 30}).json()
+    assert q["level"] == "quiet"
+    today = c.get("/api/today").json()
+    assert today["halt"] is None
+    assert today["quiet"]["level"] == "quiet"
+    assert today["muted_halt"]["title"] == "Standup"
+    c.delete(f"/api/quiet/{q['id']}")
+    assert c.get("/api/today").json()["halt"]["id"] == m["id"]
+
+
+def test_panic_quiet_api(tmp_path):
+    c = client(tmp_path)
+    r = c.post("/api/quiet/panic")
+    assert r.status_code == 200
+    assert r.json()["level"] == "dormant"
+    assert r.json()["reason"] == "panic"
